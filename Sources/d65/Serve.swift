@@ -44,6 +44,7 @@ final class CalibrationServer {
     private let applyToDisplay: Bool
     private let ddcTest: Bool
     private let gammaTest: Bool
+    private let brightnessTest: Bool
     private var output = MacDisplayOutput()
     private let normalizer = MeasurementNormalizer(minimumLux: 1)
     private var buffers: [ObjectIdentifier: Data] = [:]
@@ -62,10 +63,11 @@ final class CalibrationServer {
     private let maximumPasses = 3
     private let targetDeltaE = 2.0
 
-    init(port: UInt16, applyToDisplay: Bool, ddcTest: Bool = false, gammaTest: Bool = false) throws {
+    init(port: UInt16, applyToDisplay: Bool, ddcTest: Bool = false, gammaTest: Bool = false, brightnessTest: Bool = false) throws {
         self.applyToDisplay = applyToDisplay
         self.ddcTest = ddcTest
         self.gammaTest = gammaTest
+        self.brightnessTest = brightnessTest
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
@@ -310,6 +312,29 @@ final class CalibrationServer {
             }
         }
 
+        if brightnessTest {
+            convergenceAmbient = ambient
+            let baseline = white.y
+            guard let display = DDCDisplay.external(), let value = display.read(DDCDisplay.luminance) else {
+                print("       DDC unavailable")
+                sessionRunning = false
+                return
+            }
+            print(String(format: "brightness test: baseline Y=%.2f, 0x10=%d -> 100", baseline, value.current))
+            _ = display.write(DDCDisplay.luminance, value: 100)
+            measureWhite { at100 in
+                print(String(format: "  at 0x10=100: Y=%.2f (%+.1f%%)", at100.y, (at100.y / baseline - 1) * 100))
+                _ = display.write(DDCDisplay.luminance, value: value.current)
+                self.measureWhite { restored in
+                    print(String(format: "  restored to %d: Y=%.2f (%+.1f%%)", value.current, restored.y, (restored.y / baseline - 1) * 100))
+                    print(restored.y / baseline > 0.9 ? "  brightness restore looks safe" : "  WARNING: luminance did not return — check the monitor OSD")
+                    DispatchQueue.main.async { self.patch.close() }
+                    self.sessionRunning = false
+                }
+            }
+            return
+        }
+
         let gate = QualityGate()
         let full = WhitePointSolver.gains(measuredWhite: white)
         let target = Chromaticity.d65.xyz(luminance: white.y)
@@ -402,6 +427,22 @@ final class CalibrationServer {
         previousDeltaE = pre
         pass = 1
         requestConvergenceMeasurement()
+    }
+
+    private func measureWhite(then completion: @escaping (XYZ) -> Void) {
+        samples.removeAll()
+        DispatchQueue.main.async { self.patch.show(.white) }
+        send(.progress(phase: "verify", fraction: 1))
+        after(2.5) {
+            self.send(.progress(phase: "done", fraction: 0))
+            guard let raw = self.mean(self.filtered(self.samples["verify"] ?? [])), raw.y > 1 else {
+                print("       white measurement failed")
+                DispatchQueue.main.async { self.patch.close() }
+                self.sessionRunning = false
+                return
+            }
+            completion(self.subtract(raw, self.convergenceAmbient))
+        }
     }
 
     // MARK: - Convergence

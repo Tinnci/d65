@@ -76,7 +76,8 @@ d65 serve [--port] [--apply] [--ddc-test] [--gamma-test]
 ```
 
 `serve` flags: `--apply` applies a solved correction; `--ddc-test` writes a -25 red gain and
-re-measures; `--gamma-test` applies a fixed B=0.70 gain and re-measures.
+re-measures; `--gamma-test` applies a fixed B=0.70 gain and re-measures; `--brightness-test` writes
+brightness 100, re-measures white, restores the previous value and re-measures again.
 
 ## Calibration session
 

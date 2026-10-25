@@ -21,7 +21,7 @@ was followed by a read-back and a restore.
 
 | VCP | Meaning | Read | Write | Evidence |
 |---|---|---|---|---|
-| `0x10` | luminance | ✅ | ✅ | 0 → 3 → read 3 → restored 0 |
+| `0x10` | luminance | ⚠️ | ✅ | write 100 raised measured Y by 93 %; readback reported 0 while lit |
 | `0x12` | contrast | ✅ | ✅ | 50 → 47 → read 47 → restored 50 |
 | `0x14` | colour preset | ✅ | ✅ | 5 → 11 → read 11 → restored 5 |
 | `0x60` | input source | ✅ | ✅ | reads 15 |
@@ -30,7 +30,15 @@ was followed by a read-back and a restore.
 | `0x18` | green gain | ✅ | ❌ | write ignored |
 | `0x1A` | blue gain | ✅ | ❌ | write ignored |
 
-Current values: `R 49 / G 46 / B 42`, contrast 50, preset 5 (6500 K fixed).
+Current values: `R 49 / G 46 / B 42`, contrast 50, preset 5 (6500 K fixed), brightness 30 (set by
+hand after the brightness test; the true value before that test is unknown).
+
+**Readback is not evidence.** Brightness reads `0` while the display is clearly lit, and writing
+that `0` back dimmed the panel by 34 %. Any automation must verify with the sensor and restore by
+measured luminance, not by the value it read.
+
+Phantom VCPs (implausible maximum, no real control): `0x0B` (max 24028), `0x0D`, `0x8A`, `0xE0`.
+Unverified: `0x6C` and `0x6E` (both read 50/255), `0x52`, `0xDC`.
 
 ### What this means
 

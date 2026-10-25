@@ -211,7 +211,8 @@ struct D65CLI {
                 port: port,
                 applyToDisplay: apply,
                 ddcTest: arguments.contains("--ddc-test"),
-                gammaTest: arguments.contains("--gamma-test")
+                gammaTest: arguments.contains("--gamma-test"),
+                brightnessTest: arguments.contains("--brightness-test")
             )
             server.start()
             print("apply to display: \(apply ? "yes" : "no (use --apply)")")

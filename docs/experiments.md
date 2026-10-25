@@ -195,6 +195,62 @@ CONVERGED after 2 passes, best ΔE00 1.44
 Compared with the fixed-2.2 runs (first pass 3.37 and 6.44, final 0.99 and 2.36), the first pass is
 closer and the final result is under 1.5. Fitting γ is cheap and removes a systematic error.
 
+## 10. DDC writes: readback is not evidence
+
+The gain test in §6 left one question open: does a write that *reads back* correctly actually
+change the picture? Brightness answered it, and the answer is uncomfortable.
+
+```
+baseline   0x10 = 0      Y = 127.26
+write      0x10 = 100    Y = 245.90    (+93.2%)   ← the write is real
+restore    0x10 = 0      Y =  83.47    (-34.4%)   ← the restore is not
+```
+
+Two conclusions:
+
+1. **Brightness writes genuinely change the backlight.** Unlike RGB gain, this VCP is effective.
+2. **The readback is not the truth.** The display reported `0` while producing plenty of light, and
+   writing that same `0` back made the screen 34 % dimmer. Restoring by value is unsafe; a restore
+   must be closed-loop against the measured luminance.
+
+The screen was left at `0x10 = 30` (a value estimated from the luminance curve) pending visual
+confirmation. This is recorded rather than quietly fixed.
+
+## 11. VCP scan: mostly phantom controls
+
+Reads of further VCPs, with no writes:
+
+```
+0x0B saturation      15 / 24028     max implausible → almost certainly phantom
+0x0C colour temp      1 / 255       writable but semantics unknown (§7)
+0x0D                  0 / 65535     phantom
+0x14 preset           5 / 12        real, writable
+0x16 red             49 / 100       real, read-only
+0x18 green           46 / 100       real, read-only
+0x1A blue            42 / 100       real, read-only
+0x52 active control   0 / 255       unknown
+0x6C                 50 / 255       suspicious: same value as 0x6E
+0x6E                 50 / 255       suspicious
+0x8A                  0 / 65535     phantom
+0xDC                  0 / 255       unknown
+0xE0                  0 / 65535     phantom
+```
+
+A display answers unknown VCPs too; the giveaway is an implausible `max` (24028, 65535). Those are
+not controls.
+
+## Three failure modes
+
+| Mode | Example | Readback | Actual effect |
+|---|---|---|---|
+| genuinely read-only | RGB gain | unchanged | none |
+| writable, readback lies | brightness 0x10 | stable but wrong (0 while lit) | real (+93 %) |
+| writable, different semantics | colour temp 0x0C | 201 written, 2 read | unknown |
+
+The middle one is the dangerous case: the readback looks self-consistent. The rule that follows is
+that a write counts as successful only when **the sensor sees a change**, and a restore must be
+closed-loop on measured luminance.
+
 ## Confounds to control in future runs
 
 | Confound | Effect | Mitigation |

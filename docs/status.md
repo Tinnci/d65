@@ -16,12 +16,14 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 | Panel gamma fit | grey ramp → γ = 2.11 (least squares), fed into the adapter |
 | Convergence | ΔE00 24.0 → 2.8 → 1.4 in two passes, in one session |
 | DDC reads | luminance, contrast, RGB gain, input, preset |
-| DDC writes (partial) | luminance, contrast, preset, input accepted |
+| DDC brightness write | write 100 raised measured Y by 93 % — genuinely effective |
+| DDC writes (partial) | contrast, preset, input accepted (visual effect unverified) |
 
 ## Known not working
 
 | Problem | Cause | Consequence |
 |---|---|---|
+| DDC readback is untrustworthy | brightness reads 0 while lit; restoring by value dimmed the panel 34 % | every write must be verified with the sensor; restores are closed-loop on luminance |
 | DDC RGB gain writes have no effect | panel firmware ignores 0x16/0x18/0x1A, even in User preset | no hardware white-point correction on this display |
 | ~~One pass does not land on target~~ | fixed: `scaledLinear` compensates display gamma, then the loop iterates | 18.75 → 2.36 ΔE00 in two passes |
 | Blue/cyan unmeasurable in daylight | ambient Y ≈ 14 vs blue Y ≈ 10 | primaries incomplete unless the room is dark |
@@ -42,13 +44,17 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 
 ## Next steps, in order
 
-1. **Menu-bar agent.** The gamma table is reverted when the setting process exits, so the shipping
+1. **Effect-verified DDC harness.** `d65 ddc effect-test`: for each candidate VCP, measure white,
+   write a large value, re-measure, restore by measured luminance, and classify the result as
+   effective / read-only / different semantics. Cache the outcome per display (EDID identity) so it
+   is probed once.
+2. **Menu-bar agent.** The gamma table is reverted when the setting process exits, so the shipping
    app must be a persistent agent that holds the correction and restores on quit.
-2. **Manual controls.** Hardware (DDC) and software (gamma) sections, each with reset, with the
+3. **Manual controls.** Hardware (DDC) and software (gamma) sections, each with reset, with the
    hardware section disabled unless `d65 ddc writable` says the panel accepts writes.
-3. **Persistence.** Store per `DisplayModeKey` with a schema version, plus crash recovery to the
+4. **Persistence.** Store per `DisplayModeKey` with a schema version, plus crash recovery to the
    previous known-good table.
-4. **Alignment.** A stand or an on-screen outline, mirroring why Apple's flow asks the user to align
+5. **Alignment.** A stand or an on-screen outline, mirroring why Apple's flow asks the user to align
    the phone and checks for motion.
 
 ## Risks
