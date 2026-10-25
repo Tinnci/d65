@@ -98,7 +98,7 @@ applied as per-channel gains through the render server. The full write-up — co
 ## Roadmap
 
 - [ ] macOS output adapter: render-server colour matrix, with per-display-mode persistence
-- [ ] Probe acquisition: a legal ambient-light source on iOS, or an external sensor
+- [ ] Probe acquisition: external sensor (supported) or sideloaded IOHID ALS (experimental, see docs/research/als-iohid.md)
 - [ ] End-to-end session over `D65Link` (Bonjour + framing)
 - [ ] Calibration store keyed by `DisplayModeKey`, with the `QualityGate` verdict recorded
 - [ ] Golden-dataset validation against a real colorimeter
