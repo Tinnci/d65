@@ -11,6 +11,7 @@ owns the workflow used by the CLI and Mac app. Platform and transport adapters s
 | D65Measurement | samples, tagged measurement windows, validation and statistics | Core |
 | D65Display | transfer-table transactions, mode keys, macOS gamma and DDC transport | Core |
 | D65Calibration | session lifecycle, correction passes, effect tests, experiment records | Core, Measurement, Display |
+| D65ProbeSupport | pure probe haptic patterns, scene timing and sampling guard | Measurement |
 | D65Link | versioned messages and bounded length-prefixed JSON framing | Core, Measurement |
 | D65MacRuntime | selected display, patch window, network probe and service | Calibration, Link, Display |
 | d65 / D65Mac | command/UI configuration and presentation of results | libraries above |
@@ -128,3 +129,11 @@ The Mac agent owns explicitly kept corrections through `CorrectionHold`, restore
 and can reapply stored corrections when launched or when a display returns. Engine sessions still
 restore before Review; preview/Keep is separate from measurement. Full mode validity and crash
 recovery beyond macOS process-exit behavior remain limitations.
+
+## Probe tactile feedback
+
+`D65ProbeSupport` keeps haptic scene/timing policy separate from measurement maths and native
+playback. The iOS adapter uses low-intensity Core Haptics transients with a soft UIKit fallback.
+Local sampling-window events allow only boundary cues that fit in settling; colour samples wait
+for playback completion and a quiet interval. The default Subtle setting, optional Clear/Off,
+geometry hysteresis and retry/terminal deduplication are described in [probe-haptics.md](probe-haptics.md).

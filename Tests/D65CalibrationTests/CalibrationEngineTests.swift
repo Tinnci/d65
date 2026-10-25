@@ -387,7 +387,51 @@ import XCTest
         XCTAssertTrue(SessionSummary(record: record).detail.contains("ΔE CAM16-UCS"))
     }
 
-    func testObserverWithoutD65DataIsRefusedBeforeTouchingTheDisplay() async throws {
+    func testCIE2015ObserverTargetsAreEnabledAndUsedForSolvingAndReporting() async throws {
+        for observer in [Observer.cie2015TwoDegree, .cie2015TenDegree] {
+            let target = try XCTUnwrap(observer.d65)
+            for metric in WhiteErrorMetric.allCases {
+                var configuration = CalibrationConfiguration(mode: .calibrate)
+                configuration.observer = observer
+                configuration.metric = metric
+                let display = MetricFakeDisplay()
+                let record = try await CalibrationEngine().run(configuration: configuration, display: display,
+                    probe: MetricFakeProbe(observer: observer) { _ in target.xyz(luminance: 95) }, presenter: MetricFakePresenter(),
+                    clock: MetricClock(), recorder: MetricRecorder(), softwareRevision: "t")
+                XCTAssertEqual(record.outcome, .converged)
+                XCTAssertEqual(display.begins, 1)
+                XCTAssertEqual(record.observer, observer)
+                XCTAssertEqual(try XCTUnwrap(record.baselineDeltaE), metric.whiteError(metricWhite, target: target), accuracy: 1e-10)
+                XCTAssertEqual(try XCTUnwrap(display.applied.first), WhitePointSolver.gains(measuredWhite: metricWhite, target: target))
+                XCTAssertEqual(try XCTUnwrap(record.bestDeltaE), 0, accuracy: 1e-9)
+                for report in try XCTUnwrap(record.metricReports) { XCTAssertEqual(report.best, 0, accuracy: 1e-9) }
+            }
+        }
+    }
+
+    func testResidualSolveKeepsTheSelectedObserverTarget() async throws {
+        let observer = Observer.cie2015TenDegree
+        let target = try XCTUnwrap(observer.d65)
+        let initial = try XCTUnwrap(metricWhite.chromaticity)
+        let halfway = Chromaticity(x: (initial.x + target.x) / 2, y: (initial.y + target.y) / 2).xyz(luminance: 95)
+        var configuration = CalibrationConfiguration(mode: .calibrate)
+        configuration.observer = observer
+        configuration.targetDeltaE = 0.1
+        let display = MetricFakeDisplay()
+        let record = try await CalibrationEngine().run(configuration: configuration, display: display,
+            probe: MetricFakeProbe(observer: observer) { $0 == 0 ? halfway : target.xyz(luminance: 93) },
+            presenter: MetricFakePresenter(), clock: MetricClock(), recorder: MetricRecorder(), softwareRevision: "t")
+        XCTAssertEqual(record.outcome, .converged)
+        XCTAssertEqual(record.passes.count, 2)
+        let first = try XCTUnwrap(display.applied.first)
+        let second = try XCTUnwrap(display.applied.dropFirst().first)
+        let expectedResidual = WhitePointSolver.gains(measuredWhite: halfway, target: target)
+        XCTAssertEqual(second.r, first.r * expectedResidual.r, accuracy: 1e-12)
+        XCTAssertEqual(second.g, first.g * expectedResidual.g, accuracy: 1e-12)
+        XCTAssertEqual(second.b, first.b * expectedResidual.b, accuracy: 1e-12)
+    }
+
+    func testChangingTheObserverCannotRelabelAnExisting1931Probe() async throws {
         var configuration = CalibrationConfiguration(mode: .calibrate)
         configuration.observer = .cie2015TenDegree
         let display = MetricFakeDisplay()
@@ -424,8 +468,11 @@ private let metricWhite = Chromaticity(x: 0.300, y: 0.315).xyz(luminance: 100)
     static let white = metricWhite
     let identity = ProbeIdentity(model: "test", build: "test")
     let verification: (Int) -> XYZ
+    let observer: Observer
     var count = 0
-    init(verification: @escaping (Int) -> XYZ) { self.verification = verification }
+    init(observer: Observer = .cie1931TwoDegree, verification: @escaping (Int) -> XYZ) {
+        self.observer = observer; self.verification = verification
+    }
     func start(_ request: MeasurementRequest) throws { count += 1 }
     func finish(_ request: MeasurementRequest) throws -> [TaggedMeasurement] {
         let xyz: XYZ
@@ -444,9 +491,10 @@ private let metricWhite = Chromaticity(x: 0.300, y: 0.315).xyz(luminance: 100)
 @MainActor private final class MetricFakeDisplay: CalibrationDisplay {
     let context = DisplayContext(identity: "d", name: "test", displayID: 1, width: 1, height: 1, refreshRate: 60)
     var begins = 0
+    var applied: [RGBGains] = []
     func begin() throws { begins += 1 }
     func validate() throws {}
-    func setCumulativeGains(_ gains: RGBGains, gamma: Double) throws {}
+    func setCumulativeGains(_ gains: RGBGains, gamma: Double) throws { applied.append(gains) }
     func restore() throws {}
     func readControl(_ code: UInt8) throws -> DDCValue { throw CalibrationError.controlUnavailable(code) }
     func writeControl(_ code: UInt8, value: UInt16) throws { throw CalibrationError.controlUnavailable(code) }

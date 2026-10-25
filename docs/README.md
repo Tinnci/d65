@@ -5,11 +5,14 @@ Everything known about this project, in reading order.
 | Document | What it answers |
 |---|---|
 | [status.md](status.md) | What works today, what does not, and what is next |
+| [probe-haptics.md](probe-haptics.md) | Subtle scene cues, strength controls, timing and sampling protection |
+| [truedepth-alignment.md](truedepth-alignment.md) | Optional pre-contact distance/tilt aid, sampling isolation and limitations |
 | [runbook.md](runbook.md) | Build/install the real probe, run a session, inspect results |
 | [implementation.md](implementation.md) | Module layout, CLI reference, wire protocol |
 | [experiments.md](experiments.md) | What was measured, with dates, numbers and conclusions |
 | [hardware.md](hardware.md) | The test display: DDC capabilities, gamma behaviour |
 | [architecture.md](architecture.md) | Why the code is split the way it is |
+| [research/cie-observers.md](research/cie-observers.md) | Official CIE 2015 CMFs, D65 integration, checks and observer boundaries |
 | [research/apple-color-balance.md](research/apple-color-balance.md) | How Apple's tvOS Color Balance works, from firmware |
 | [research/als-iohid.md](research/als-iohid.md) | How the iPhone ambient-light sensor is read, decoded and gated |
 

@@ -125,10 +125,17 @@ public enum CalibrationError: Error, Equatable {
 
 @MainActor public protocol CalibrationProbe {
     var identity: ProbeIdentity { get }
+    /// Coordinate system supplied by this source; target selection never converts its XYZ.
+    var observer: Observer { get }
     func start(_ request: MeasurementRequest) throws
     func finish(_ request: MeasurementRequest) throws -> [TaggedMeasurement]
     @discardableResult func stop() -> [TaggedMeasurement]
 }
+extension CalibrationProbe {
+    /// Existing iPhone ALS sources retain their historical CIE 1931 2° assumption.
+    public var observer: Observer { .cie1931TwoDegree }
+}
+
 @MainActor public protocol PatchPresenter {
     /// Returns after the selected screen has presented the patch.
     func show(_ patch: CalibrationPatch) async throws

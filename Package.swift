@@ -11,14 +11,16 @@ let package = Package(
         .library(name: "D65Core", targets: ["D65Core"]),
         .library(name: "D65Measurement", targets: ["D65Measurement"]),
         .library(name: "D65Link", targets: ["D65Link"]),
+        .library(name: "D65ProbeSupport", targets: ["D65ProbeSupport"]),
         .library(name: "D65Display", targets: ["D65Display"]),
         .library(name: "D65Calibration", targets: ["D65Calibration"]),
         .library(name: "D65MacRuntime", targets: ["D65MacRuntime"]),
         .executable(name: "d65", targets: ["d65"]),
     ],
     targets: [
-        .target(name: "D65Core"),
+        .target(name: "D65Core", resources: [.copy("Resources/CIE")]),
         .target(name: "D65Measurement", dependencies: ["D65Core"]),
+        .target(name: "D65ProbeSupport", dependencies: ["D65Measurement"]),
         .target(name: "D65Link", dependencies: ["D65Core", "D65Measurement"]),
         .target(
             name: "D65Display",
@@ -33,6 +35,7 @@ let package = Package(
             dependencies: ["D65Core", "D65Display", "D65Link", "D65Measurement", "D65MacRuntime"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        .testTarget(name: "D65ProbeSupportTests", dependencies: ["D65ProbeSupport"]),
         .testTarget(name: "D65MacRuntimeTests", dependencies: ["D65MacRuntime"]),
         .testTarget(name: "D65CalibrationTests", dependencies: ["D65Calibration", "D65Link"]),
         .testTarget(name: "D65CoreTests", dependencies: ["D65Core"]),

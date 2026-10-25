@@ -23,12 +23,22 @@ struct D65CLI {
             runGains(arguments)
         case "cct":
             runCCT(arguments)
+        case "observers":
+            for observer in Observer.allCases {
+                guard let target = observer.d65 else { fail("CIE data unavailable for \(observer.rawValue)") }
+                let xyz = target.xyz()
+                print(String(format: "%@  x=%.12f y=%.12f  XYZ(Y=1)=%.12f 1 %.12f",
+                             observer.rawValue, target.x, target.y, xyz.x, xyz.z))
+            }
         case "error":
             guard let values = parseDoubles(arguments, expected: 2) else { fail("error expects two numbers: x y") }
+            let observer = selectedObserver(arguments)
+            guard let target = observer.d65 else { fail("CIE data unavailable for \(observer.rawValue)") }
             let white = Chromaticity(x: values[0], y: values[1]).xyz()
+            print("observer \(observer.rawValue)")
             for metric in WhiteErrorMetric.allCases {
                 let label = metric.label.padding(toLength: 14, withPad: " ", startingAt: 0)
-                print(label + String(format: "%7.3f   ", metric.whiteError(white)) + metric.definition)
+                print(label + String(format: "%7.3f   ", metric.whiteError(white, target: target)) + metric.definition)
             }
         case "verify":
             runVerification(arguments)
@@ -60,7 +70,10 @@ struct D65CLI {
                   Per-channel gains that move a measured white to the target
                   chromaticity (D65 by default).
 
-              d65 error <x> <y>
+              d65 observers
+                  List each observer's D65 target (computed from bundled CIE data for 2015).
+
+              d65 error <x> <y> [--observer cie1931-2|cie2015-2|cie2015-10]
                   Distance of a white's chromaticity from D65, in CIEDE2000 and CAM16-UCS.
 
               d65 cct <x> <y>
@@ -94,6 +107,15 @@ struct D65CLI {
                   Write RGB gain (VCP 0x16/0x18/0x1A) and verify the read-back.
             """
         )
+    }
+
+    static func selectedObserver(_ arguments: [String]) -> Observer {
+        guard let index = arguments.firstIndex(of: "--observer") else { return .cie1931TwoDegree }
+        let names: [String: Observer] = ["cie1931-2": .cie1931TwoDegree, "cie2015-2": .cie2015TwoDegree, "cie2015-10": .cie2015TenDegree]
+        guard index + 1 < arguments.count, let observer = names[arguments[index + 1]] else {
+            fail("--observer expects cie1931-2, cie2015-2 or cie2015-10; input xy must already use that observer")
+        }
+        return observer
     }
 
     static func selectedDisplayID(_ options: [String: Double]) -> UInt32 {
@@ -278,6 +300,7 @@ struct D65CLI {
             let displayID = options["display-id"].map { UInt32($0) }
                 ?? DisplayDirectory.preferred(in: DisplayDirectory.online())?.id ?? CGMainDisplayID()
             var lastPlacement: PlacementState?
+            var lastAlignment: String?
             server.onEvent = { event in
                 switch event {
                 case .listening: print("advertising _d65._tcp; target display \(displayID); waiting for a protocol-v\(Link.protocolVersion) probe")
@@ -287,6 +310,9 @@ struct D65CLI {
                     server.beginPlacement(displayID: displayID)
                 case .probeDisconnected: print("probe disconnected")
                 case .placement(let reading):
+                    if let text = reading.alignment?.summary, text != lastAlignment {
+                        print(text); lastAlignment = text
+                    }
                     if reading.state != lastPlacement { print("placement: \(reading.state.rawValue)"); lastPlacement = reading.state }
                     if reading.state == .settled { server.run(configuration: config, displayID: displayID) }
                 case .startRequested:

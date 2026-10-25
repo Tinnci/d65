@@ -17,9 +17,10 @@ public struct PlacementReading: Sendable, Equatable {
     public var state: PlacementState
     public var luminance: Double?
     /// 0…1 towards `requiredSteadySeconds`.
+    public var alignment: DepthAlignmentReading?
     public var steadyFraction: Double
-    public init(state: PlacementState, luminance: Double? = nil, steadyFraction: Double = 0) {
-        self.state = state; self.luminance = luminance; self.steadyFraction = steadyFraction
+    public init(state: PlacementState, luminance: Double? = nil, steadyFraction: Double = 0, alignment: DepthAlignmentReading? = nil) {
+        self.state = state; self.luminance = luminance; self.steadyFraction = steadyFraction; self.alignment = alignment
     }
 }
 
@@ -79,5 +80,25 @@ public struct PlacementMonitor: Sendable {
         guard !values.isEmpty else { return nil }
         let sorted = values.sorted()
         return sorted[sorted.count / 2]
+    }
+}
+
+/// Stale estimates disappear, but a silent camera never becomes permission to sample colour.
+public struct DepthAlignmentFeedback: Sendable {
+    private var latest: DepthAlignmentReading?
+    private var receivedAt: Date?
+    public init() {}
+    public var blocksColourSampling: Bool { latest?.blocksColourSampling == true }
+    public mutating func receive(_ reading: DepthAlignmentReading, at now: Date) {
+        latest = reading; receivedAt = now
+    }
+    public mutating func reset() { latest = nil; receivedAt = nil }
+    public func visible(at now: Date) -> DepthAlignmentReading? {
+        guard let latest, let receivedAt else { return nil }
+        if now.timeIntervalSince(receivedAt) <= 1 { return latest }
+        if blocksColourSampling {
+            return .init(status: .noReliableDepth, message: "Depth feedback paused. Finish alignment on the iPhone before measuring.")
+        }
+        return nil
     }
 }

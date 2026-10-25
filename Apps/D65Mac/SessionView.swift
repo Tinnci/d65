@@ -50,9 +50,10 @@ struct SessionView: View {
                 Hint("Connects on its own when the app opens")
                 Button("Back") { model.back() }.keyboardShortcut(.cancelAction)
             case .place:
-                Hint("Return starts now · Esc goes back")
+                Hint(model.placement.alignment?.blocksColourSampling == true ? "Finish depth alignment on the iPhone" : "Return starts now · Esc goes back")
                 Button("Back") { model.back() }.keyboardShortcut(.cancelAction)
                 Button("Start Now") { model.startNow() }.keyboardShortcut(.defaultAction)
+                    .disabled(model.placement.alignment?.blocksColourSampling == true)
             case .measure:
                 Hint("Esc cancels and restores the display")
                 Button("Cancel") { model.back() }.keyboardShortcut(.cancelAction)
@@ -162,6 +163,13 @@ private struct PlaceStep: View {
             }
         }
         .font(.callout).monospacedDigit()
+        if let alignment = model.placement.alignment {
+            Text(alignment.summary).font(.callout.monospacedDigit())
+            Text(alignment.blocksColourSampling
+                ? "Depth alignment is advisory. Finish it on the iPhone before measuring."
+                : "Depth camera off; finish placement by contact.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
         VStack(alignment: .leading, spacing: 6) {
             ProgressView(value: model.placement.steadyFraction)
                 .tint(model.placement.state == .settled ? Theme.ok : .secondary)
@@ -170,6 +178,10 @@ private struct PlaceStep: View {
         .accessibilityElement(children: .combine)
     }
     private var placementText: String {
+        if model.placement.alignment?.blocksColourSampling == true { return "Waiting for depth alignment to finish" }
+        return descriptionForPlacement
+    }
+    private var descriptionForPlacement: String {
         switch model.placement.state {
         case .waiting: return "Waiting for the first reading"
         case .tooDark: return "Too dark — the sensor, at the top edge, must sit inside the outline"

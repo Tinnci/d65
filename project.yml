@@ -72,6 +72,8 @@ targets:
         product: D65Link
       - package: D65
         product: D65Measurement
+      - package: D65
+        product: D65ProbeSupport
     info:
       path: Apps/D65Probe/Info.plist
       properties:
@@ -82,6 +84,7 @@ targets:
           UIColorName: LaunchBackground
         NSLocalNetworkUsageDescription: D65 Probe sends measurements to the Mac on your local network.
         NSMotionUsageDescription: D65 Probe checks that the phone is still while it measures.
+        NSCameraUsageDescription: Optional TrueDepth alignment estimates distance and tilt before you press the phone against the display.
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

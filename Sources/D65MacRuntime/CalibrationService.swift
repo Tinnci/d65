@@ -81,6 +81,7 @@ public enum SessionEvent {
     private var presenter: ScreenPatchPresenter?
     private var placementID: UUID?
     private var placement = PlacementMonitor()
+    private var alignment = DepthAlignmentFeedback()
     private var placementTimer: Timer?
     public var onEvent: ((SessionEvent) -> Void)?
     public var showsProgressOnPatches = true
@@ -137,7 +138,7 @@ public enum SessionEvent {
     public func beginPlacement(displayID: UInt32) {
         guard let probe, task == nil, let presenter = presenter(for: displayID) else { return }
         let id = UUID()
-        placementID = id; placement = PlacementMonitor()
+        placementID = id; placement = PlacementMonitor(); alignment.reset()
         presenter.showPlacement(probeModel: probe.identity.model, hint: Self.hint(for: .waiting))
         probe.send(.placementRequest(sessionID: id))
         placementTimer?.invalidate()
@@ -150,15 +151,26 @@ public enum SessionEvent {
         onEvent?(.placement(PlacementReading(state: .waiting)))
     }
 
-    public func endPlacement(closeOverlay: Bool = true) {
+    public func endPlacement(closeOverlay: Bool = true, announceCancellation: Bool = false) {
         placementTimer?.invalidate(); placementTimer = nil
-        if let id = placementID { probe?.send(.placementEnd(sessionID: id)) }
-        placementID = nil
+        if let id = placementID {
+            probe?.send(.placementEnd(sessionID: id))
+            if announceCancellation {
+                probe?.send(.failure(code: LinkFailure.cancelled.rawValue, message: "Placement cancelled. No correction was applied."))
+            }
+        }
+        placementID = nil; alignment.reset()
         if closeOverlay, task == nil { presenter?.close() }
     }
 
-    private func report(_ reading: PlacementReading) {
-        presenter?.setHint(Self.hint(for: reading.state))
+    private func report(_ input: PlacementReading) {
+        var reading = input
+        reading.alignment = alignment.visible(at: Date())
+        if alignment.blocksColourSampling { reading.state = .moving; reading.steadyFraction = 0 }
+        let hint = reading.alignment.map { $0.summary + "\n" + ($0.blocksColourSampling
+            ? "Finish depth alignment on the iPhone before measuring"
+            : Self.hint(for: reading.state)) } ?? Self.hint(for: reading.state)
+        presenter?.setHint(hint)
         onEvent?(.placement(reading))
     }
 
@@ -175,6 +187,10 @@ public enum SessionEvent {
     // MARK: Runs
 
     public func run(configuration: CalibrationConfiguration, displayID: UInt32) {
+        guard !alignment.blocksColourSampling else {
+            onEvent?(.runFailed("Finish TrueDepth alignment on the iPhone before starting colour measurement."))
+            return
+        }
         guard let probe, let candidate = connection, task == nil else {
             onEvent?(.runFailed(probe == nil ? "No probe is connected." : "A session is already running.")); return
         }
@@ -214,12 +230,7 @@ public enum SessionEvent {
                 return
             }
             guard let record = finished else { return }
-            if let gains = record.bestGains, let before = record.baselineDeltaE, let after = record.bestDeltaE {
-                probe.send(.result(gains: gains, preDeltaE: before, postDeltaE: after,
-                                   verdict: SessionSummary.probeVerdict(for: record)))
-            } else {
-                probe.send(.failure(code: LinkFailure.session.rawValue, message: SessionSummary(record: record).title))
-            }
+            probe.send(ProbeCompletionMessage.make(for: record))
             probe.send(.sessionEnded(sessionID: record.id))
             onEvent?(.finished(record, saveError: saveError))
         }
@@ -234,7 +245,7 @@ public enum SessionEvent {
         let created = ScreenPatchPresenter(screen: screen, displayID: displayID)
         created.onCancel = { [weak self] in
             guard let self else { return }
-            if self.task != nil { self.cancelRun() } else { self.endPlacement() }
+            if self.task != nil { self.cancelRun() } else { self.endPlacement(announceCancellation: true) }
             self.onEvent?(.cancelRequested)
         }
         created.onStartNow = { [weak self] in self?.onEvent?(.startRequested) }
@@ -349,7 +360,12 @@ public enum SessionEvent {
             probe?.append(sessionID: sessionID, patchID: patchID, sample: sample)
         case .previewSample(let sessionID, let sample, let stable):
             guard sessionID == placementID else { return }
-            report(placement.add(sample, stable: stable, at: Date()))
+            report(placement.add(sample, stable: stable && !alignment.blocksColourSampling, at: Date()))
+        case .depthAlignment(let sessionID, let reading):
+            guard sessionID == placementID, task == nil else { return }
+            alignment.receive(reading, at: Date())
+            if reading.blocksColourSampling { placement = PlacementMonitor() }
+            report(placement.tick(at: Date()))
         case .hello:
             let text = "D65 Probe is out of date (protocol 1). Rebuild it for protocol \(Link.protocolVersion)."
             onEvent?(.probeRejected(text))

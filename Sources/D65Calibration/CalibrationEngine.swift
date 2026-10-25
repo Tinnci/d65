@@ -34,8 +34,10 @@ import Foundation
                   (0...1).contains(configuration.gate.maximumLuminanceLoss) else {
                 throw CalibrationError.invalidConfiguration
             }
-            // Values from different observers must not be compared: refuse a target D65 has no data for.
-            guard let target = configuration.observer.d65 else { throw CalibrationError.invalidConfiguration }
+            // The caller must supply XYZ for its declared observer. Never substitute another observer's D65.
+            guard configuration.observer == probe.observer, let target = configuration.observer.d65 else {
+                throw CalibrationError.invalidConfiguration
+            }
             let metric = configuration.metric
             try Task.checkCancellation()
             try display.begin()
@@ -192,7 +194,7 @@ import Foundation
             record.terminationReason = "Display already within tolerance"
             return
         }
-        let full = WhitePointSolver.gains(measuredWhite: white)
+        let full = WhitePointSolver.gains(measuredWhite: white, target: target)
         var selected: RGBGains?
         for step in stride(from: 20, through: 1, by: -1) {
             let candidate = CorrectionRequest(gains: full, alpha: Double(step) / 20).resolved()
@@ -243,7 +245,7 @@ import Foundation
                 return
             }
             if number == config.maximumPasses { break }
-            let residual = WhitePointSolver.gains(measuredWhite: measured)
+            let residual = WhitePointSolver.gains(measuredWhite: measured, target: target)
             cumulative = RGBGains(r: cumulative.r * residual.r, g: cumulative.g * residual.g, b: cumulative.b * residual.b)
             let predicted = WhitePointSolver.predictedWhite(after: residual, measuredWhite: measured)
             guard predicted.y / white.y >= 1 - config.gate.maximumLuminanceLoss else {

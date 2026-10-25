@@ -14,6 +14,8 @@ enum LinkEvent: Equatable {
     case placementStarted
     case placementEnded
     case measuring(phase: String, fraction: Double?)
+    case sampleWindowOpened(MeasurementRequest)
+    case sampleWindowClosed(MeasurementRequest)
     case result(verdict: CalibrationVerdict, before: Double, after: Double)
     case sessionEnded
     case failure(code: Int, message: String)
@@ -78,6 +80,11 @@ enum LinkEvent: Equatable {
         } else if let placementID {
             send(.previewSample(sessionID: placementID, sample: sample, stable: stable))
         }
+    }
+
+    func sendAlignment(_ reading: DepthAlignmentReading) {
+        guard let placementID else { return }
+        send(.depthAlignment(sessionID: placementID, reading: reading))
     }
 
     /// The phone lies face-down while sampling; its own light must not reach the sensor.
@@ -173,9 +180,13 @@ enum LinkEvent: Equatable {
         case .measurementRequest(let request):
             dim()
             self.request = request
+            onEvent?(.sampleWindowOpened(request))
             onMessage?(request.phase)
         case .measurementEnd(let sessionID, let patchID):
-            if request?.sessionID == sessionID, request?.patchID == patchID { request = nil }
+            if let current = request, current.sessionID == sessionID, current.patchID == patchID {
+                request = nil
+                onEvent?(.sampleWindowClosed(current))
+            }
         case .progress(let phase, let fraction):
             onEvent?(.measuring(phase: phase, fraction: fraction))
         case .sessionEnded:

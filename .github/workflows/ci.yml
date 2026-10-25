@@ -15,6 +15,9 @@ jobs:
       - name: Swift version
         run: swift --version
 
+      - name: Validate official CIE datasets
+        run: python3 scripts/check_cie_data.py
+
       - name: Build
         run: swift build
 

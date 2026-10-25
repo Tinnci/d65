@@ -30,7 +30,7 @@ public enum WhiteErrorMetric: String, Codable, Sendable, CaseIterable {
         guard white.y > 0 else { return .infinity }
         switch self {
         case .ciede2000:
-            return ColorDifference.deltaE00(white.scaled(by: 1 / white.y), target.xyz())
+            return ColorDifference.deltaE00(white.scaled(by: 1 / white.y), target.xyz(), white: target.xyz())
         case .cam16ucs:
             var conditions = CAM16.ViewingConditions.displayD65
             conditions.white = target.xyz(luminance: 100)
@@ -46,13 +46,14 @@ public enum Observer: String, Codable, Sendable, CaseIterable {
     case cie2015TwoDegree = "CIE 2015 2°"
     case cie2015TenDegree = "CIE 2015 10°"
 
-    /// D65's chromaticity under this observer, where D65 knows it. The CIE 2015 (cone-fundamental)
-    /// observers need the CIE's tabulated CMFs, which this package does not ship yet, and no current
-    /// probe reports XYZ for them.
+    /// D65 integrated against this observer's CMFs. CIE 2015 uses the bundled official 1 nm
+    /// tables over 390...830 nm; 1931 retains the existing rounded sRGB/Rec.709 reference.
+    /// Loading invalid/missing CIE resources returns nil, never another observer's white.
     public var d65: Chromaticity? {
         switch self {
         case .cie1931TwoDegree: .d65
-        case .cie2015TwoDegree, .cie2015TenDegree: nil
+        case .cie2015TwoDegree: CIESpectralData.twoDegreeD65?.chromaticity
+        case .cie2015TenDegree: CIESpectralData.tenDegreeD65?.chromaticity
         }
     }
 }

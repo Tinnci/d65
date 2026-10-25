@@ -1,6 +1,7 @@
 import D65Core
 import D65Link
 import D65Measurement
+import D65ProbeSupport
 import SwiftUI
 import UIKit
 
@@ -17,22 +18,47 @@ import UIKit
         case result(verdict: CalibrationVerdict, before: Double, after: Double)
         case refused(String)
         case failed(String)
+        case cancelled
+        case measurementComplete
     }
 
     @Published private(set) var phase: Phase = .searching
     @Published private(set) var sensorName = "No sensor"
     @Published private(set) var isSimulated = false
     @Published private(set) var lastReading: Double?
+    @Published private(set) var alignmentReading: DepthAlignmentReading?
+    @Published var hapticStrength: ProbeHapticStrength {
+        didSet {
+            guard hapticStrength != oldValue else { return }
+            UserDefaults.standard.set(hapticStrength.rawValue, forKey: "probeHapticStrength")
+            haptics.setStrength(hapticStrength)
+        }
+    }
 
     private let link = LinkClient()
     private let stillness = StillnessMonitor()
+    private let alignment = TrueDepthAlignmentAssist()
     private var sensor: ProbeSensor?
-    private let impact = UIImpactFeedbackGenerator(style: .medium)
-    private let notify = UINotificationFeedbackGenerator()
+    private let haptics: ProbeHaptics
+
+    init() {
+        let strength = UserDefaults.standard.string(forKey: "probeHapticStrength").flatMap(ProbeHapticStrength.init(rawValue:)) ?? .subtle
+        hapticStrength = strength
+        haptics = ProbeHaptics(strength: strength)
+    }
+    func previewHaptics() { haptics.preview() }
+    func didBecomeActive() { haptics.setActive(true) }
 
     func start() {
+        guard self.sensor == nil else { return }
         UIApplication.shared.isIdleTimerDisabled = true
-        guard let sensor = SensorRegistry.make() else { phase = .noSensor; return }
+        haptics.setActive(true)
+        alignment.onReading = { [weak self] reading in
+            self?.haptics.alignment(reading)
+            self?.alignmentReading = reading
+            self?.link.sendAlignment(reading)
+        }
+        guard let sensor = SensorRegistry.make() else { phase = .noSensor; haptics.play(.refused); return }
         self.sensor = sensor
         sensorName = sensor.name; isSimulated = sensor.isSimulated
         stillness.start()
@@ -40,42 +66,74 @@ import UIKit
         sensor.start { [weak self] sample in
             guard let self else { return }
             self.lastReading = sample.xyz.y
-            self.link.sendSample(sample, stable: self.stillness.isStable)
+            self.link.sendSample(sample, stable: self.stillness.isStable && self.alignment.permitsColourSamples && self.haptics.permitsColourSamples)
         }
         link.start()
     }
 
     /// Leaving the foreground must never leave the screen at 1 % brightness.
-    func didLeaveForeground() { link.restoreBrightness() }
+    func didLeaveForeground() { haptics.setActive(false); link.restoreBrightness() }
+
+    func didEnterBackground() { alignment.stop() }
+
+    func startAlignment() {
+        switch phase {
+        case .searching, .ready, .placing: alignment.start()
+        default: break
+        }
+    }
+    func finishAlignment() { alignment.stop() }
 
     func stop() {
+        haptics.stop()
+        alignment.stop()
         sensor?.stop(); stillness.stop(); link.stop()
+        sensor = nil
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
     private func handle(_ event: LinkEvent) {
         switch event {
         case .searching: if !isTerminal { phase = .searching }
-        case .browseFailed(let text): phase = .localNetworkOff(text)
-        case .connected: phase = .ready
-        case .disconnected: phase = .searching
+        case .browseFailed(let text):
+            if phase != .localNetworkOff(text) { haptics.play(.refused) }
+            phase = .localNetworkOff(text)
+        case .connected: phase = .ready; haptics.connectionOpened()
+        case .disconnected: alignment.stop(); haptics.connectionClosed(); phase = .searching
         case .placementStarted:
-            phase = .placing; impact.impactOccurred()
+            phase = .placing; haptics.placementStarted()
+            if let alignmentReading { link.sendAlignment(alignmentReading) }
         case .placementEnded:
+            alignment.stop()
             if phase == .placing { phase = .ready }
         case .measuring(let name, let fraction):
-            if case .measuring = phase {} else { impact.impactOccurred(intensity: 1) }
+            alignment.stop()
+            haptics.progress(name)
             phase = .measuring(phase: name, fraction: fraction)
+        case .sampleWindowOpened(let request):
+            haptics.windowOpened(request)
+        case .sampleWindowClosed(let request):
+            haptics.windowClosed(request)
         case .result(let verdict, let before, let after):
             phase = .result(verdict: verdict, before: before, after: after)
-            notify.notificationOccurred(verdict == .rejected ? .warning : .success)
+            haptics.completed(verdict == .rejected ? .rejected : (verdict == .confirmed ? .confirmed : .success))
         case .sessionEnded:
+            haptics.sessionEnded()
+            alignment.stop()
             if case .measuring = phase { phase = .ready }
             if phase == .placing { phase = .ready }
         case .failure(let code, let message):
-            if code == LinkFailure.busy.rawValue || code == LinkFailure.incompatible.rawValue { phase = .refused(message) }
-            else { phase = .failed(message) }
-            notify.notificationOccurred(.error)
+            alignment.stop()
+            switch LinkFailure(rawValue: code) {
+            case .cancelled:
+                phase = .cancelled; haptics.completed(.cancelled)
+            case .measurementComplete:
+                phase = .measurementComplete; haptics.completed(.measurementComplete)
+            case .busy, .incompatible:
+                phase = .refused(message); haptics.completed(.refused)
+            default:
+                phase = .failed(message); haptics.completed(.failure)
+            }
         }
     }
 
@@ -84,5 +142,5 @@ import UIKit
     }
 
     /// Results stay until the Mac starts the next placement.
-    func dismissResult() { phase = link.isConnected ? .ready : .searching }
+    func dismissResult() { haptics.play(.selection); phase = link.isConnected ? .ready : .searching }
 }

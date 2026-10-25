@@ -13,7 +13,7 @@ The engine reports `CalibrationProgress` through `onProgress`, records a structu
 `failedPhase`, and throws `RecordSaveError` (carrying the restored record) when a record cannot be
 written.
 
-`D65MacRuntime.CalibrationService` hosts protocol v3 over Bonjour `_d65._tcp` and emits typed
+`D65MacRuntime.CalibrationService` hosts protocol v4 over Bonjour `_d65._tcp` and emits typed
 `SessionEvent`s. One probe connection is kept across sessions; the engine runs only when the client
 calls `run(configuration:displayID:)`, normally after `beginPlacement` reports `.settled`. The patch
 overlay takes key focus: Esc cancels (the engine restores), Space asks to start now. `d65 serve` and
@@ -29,9 +29,12 @@ White error has two metrics (`WhiteErrorMetric`): CIEDE2000 at Y = 1 (the defaul
 ΔE' (`CAM16`, checked against the published CAM16 example to 10⁻⁶) for a viewer adapted to D65,
 at 64 cd/m² with a 20 % background and average surround. `CalibrationConfiguration.metric` picks the
 one the gate, target and stopping rule use; every record also carries `metricReports` with the
-baseline and best white in both. Each measurement records its `Observer`. The iPhone sensor's XYZ
-is taken as CIE 1931 2°. The CIE 2015 2° and 10° observers are named, but the engine refuses them
-until their colour-matching functions are added, so values from different observers are never compared.
+baseline and best white in both. Each experiment records its declared source `Observer`. The iPhone sensor's XYZ
+is taken as CIE 1931 2°. CIE 2015 2° and 10° D65 targets are now integrated from bundled official
+CIE CMFs and the D65 spectrum (390–830 nm, 1 nm summation, Y=1). `CalibrationProbe.observer`
+must match the configuration before a session can start; selecting a target never converts XYZ.
+The live iPhone adapter retains its 1931 assumption. See [CIE observers](research/cie-observers.md)
+for provenance, checks, target values and the limits of the existing RGB-primary model.
 Older records and stores decode as CIEDE2000 and CIE 1931 2°.
 
 ## CLI
@@ -40,6 +43,8 @@ Older records and stores decode as CIEDE2000 and CIE 1931 2°.
 swift run d65 selftest
 swift run d65 gains <X> <Y> <Z> [--alpha <a>]
 swift run d65 cct <x> <y>
+swift run d65 observers
+swift run d65 error <x> <y> [--observer cie1931-2|cie2015-2|cie2015-10]
 swift run d65 verify <pre> <post> [--luminance-scale <s>]
 swift run d65 display list
 swift run d65 display probe [--display-id <id>]
@@ -80,7 +85,11 @@ Each window defaults to 0.5 seconds settling plus 2 seconds sampling, with at le
 readings. The black mean is subtracted from emitted patches. The gamma fit uses a log-domain slope
 with at least three usable greys and bounds 1.6…2.8; otherwise gamma remains 2.2.
 
-Wire frames remain 4-byte big-endian length plus JSON, bounded to 1 MiB. Version 3 keeps the v2
+Wire frames remain 4-byte big-endian length plus JSON, bounded to 1 MiB. Version 4 adds
+`depthAlignment(sessionID:reading:)`, optional TrueDepth geometry during placement. It cannot
+select an observer or authorize contact. Active alignment blocks colour sampling until confirmed
+camera shutdown and a settling interval; stale estimates cannot release that block. See
+[TrueDepth alignment](truedepth-alignment.md). Version 3 introduced the placement handshake and keeps the v2
 messages below and adds a placement handshake: the Mac sends `placementRequest`/`placementEnd`,
 the probe streams `previewSample(sessionID:sample:stable:)` with its motion-gate flag, and
 `PlacementMonitor` decides when 1.5 s of steady readings have passed. Refusals are sent to the phone
@@ -101,9 +110,22 @@ samples enter the current request. The phone dims through the full session and r
 brightness on completion, failure, explicit stop or disconnect.
 
 The ignored experiment project compiles the shared client from `Apps/D65Probe/LinkClient.swift`,
-so it speaks v3 after a rebuild. `D65Probe` finds a sensor through `SensorRegistry`: the class
+so it speaks v4 after a rebuild. `D65Probe` finds a sensor through `SensorRegistry`: the class
 `D65LocalSensorFactory` (compiled from `local/probe-sensor/` when that directory exists), else a
 labelled simulated sensor in the iOS Simulator, else none.
+
+## Probe haptics
+
+`D65ProbeSupport.ProbeFeedbackPolicy` defines short, low-intensity patterns, scene deduplication,
+alignment dwell/hysteresis, sample-window exclusion and playback settling. The iOS `ProbeHaptics`
+adapter uses Core Haptics completion callbacks and a soft UIKit fallback. The phone stores its
+Subtle/Clear/Off preference and offers a preview outside measurement. Colour samples require both
+camera and haptic guards to be clear as well as CoreMotion stability.
+
+`LinkClient` emits local window-open/close events from tagged measurement requests. Protocol-v4
+`LinkFailure.cancelled` (4) and `.measurementComplete` (5) distinguish informational outcomes from
+sensor/restoration errors; `ProbeCompletionMessage` preserves that distinction even when a stopped
+run contains an earlier good pass. See [the scene map and timing rules](probe-haptics.md).
 
 ## Output and records
 
@@ -148,7 +170,7 @@ The app build stamps `git describe --always --dirty` into `D65SoftwareRevision` 
 `scripts/stamp-revision.sh`. Core/measurement/session code uses Swift 6. Platform host and CLI remain
 in Swift 5 language mode with explicit main-actor isolation at workflow boundaries.
 
-Tests cover colour reference pairs, effective-gain resolution, framing including v3, measurement
+Tests cover colour reference pairs, effective-gain resolution, framing including v4, measurement
 window filtering, transactional gamma tables, engine outcomes/cleanup, DDC failures, connection
 isolation, measured brightness restoration and atomic record round trips. They do not substitute
 for a physical reference-colorimeter run.

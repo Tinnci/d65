@@ -30,6 +30,8 @@ public enum CalibrationMessage: Codable, Hashable, Sendable {
     case placementEnd(sessionID: UUID)
     /// Probe → Mac (v3). A live reading while the phone is being placed; `stable` is the probe's motion gate.
     case previewSample(sessionID: UUID, sample: MeasurementSample, stable: Bool)
+    /// Probe → Mac (v4). Optional pre-contact geometry; never authorizes contact or an observer change.
+    case depthAlignment(sessionID: UUID, reading: DepthAlignmentReading)
 }
 
 /// Failure codes the probe can turn into plain language.
@@ -37,6 +39,9 @@ public enum LinkFailure: Int, Sendable {
     case session = 1
     case incompatible = 2
     case busy = 3
+    /// Informational terminal outcomes, not errors.
+    case cancelled = 4
+    case measurementComplete = 5
 }
 
 public enum FramingError: Error, Equatable {
@@ -98,5 +103,5 @@ public enum Link {
     /// Bonjour service type advertised by the Mac and browsed by the probe.
     public static let serviceType = "_d65._tcp"
     /// v3 adds the placement handshake and keeps the connection open across sessions.
-    public static let protocolVersion = 3
+    public static let protocolVersion = 4
 }

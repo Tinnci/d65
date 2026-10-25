@@ -6,7 +6,7 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 
 The CLI and Mac app now share `D65Calibration` through `D65MacRuntime`. Sessions are main-actor
 isolated, restore captured gamma tables, distinguish termination outcomes and save schema-v1 JSON
-records. Protocol v3 requires rebuilding the local probe; legacy sessions are rejected. Tests cover
+records. Protocol v4 requires rebuilding the local probe; legacy sessions are rejected. Tests cover
 failure/cancellation paths, consecutive sessions, connection isolation, DDC read errors and measured
 brightness restoration. See [architecture.md](architecture.md) and [implementation.md](implementation.md).
 The first real run at revision `b219ab6` converged in one pass: normalized ΔE00 4.56 → 1.40,
@@ -16,6 +16,23 @@ metrics normalize Y=1 and must not be compared directly with historical absolute
 Reproduce the session with [runbook.md](runbook.md). Before the run, 60 XCTest cases, the CLI
 self-checks, the Mac app build and the signed physical-probe build passed. GUI Keep/Discard and
 persistence have software coverage, but were not exercised in this hardware session.
+
+## Observer target data
+
+Official CIE 2015 2° and 10° CMFs and the D65 SPD are now bundled, with matching published MD5
+and SHA-256 hashes, wavelength/metadata checks and independently verified integration. Their D65
+xy targets are (0.313452449326, 0.330801828024) and (0.313786279487, 0.331274762958).
+Use `d65 observers` to inspect them. The live iPhone remains a 1931-assumed source; these targets
+do not convert its XYZ or establish physical 2015 calibration accuracy. See
+[observer data and validation](research/cie-observers.md).
+
+## Optional TrueDepth aid (software verification)
+
+The probe can estimate pre-contact distance/tilt for an approximately flat surface and relay it to
+the Mac. Camera permission is opt-in. Colour samples wait for depth capture shutdown and settling;
+missing/denied depth falls back to the outline. This does not establish contact or change the
+observer. Geometry/gating tests and app builds cover the software; physical TrueDepth validation
+is still pending. See [alignment notes](truedepth-alignment.md).
 
 ## Verified working
 

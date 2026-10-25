@@ -21,10 +21,16 @@ final class CalibrationMessageTests: XCTestCase {
             .phasedSample(phase: "white", sample: sample),
             .progress(phase: "white", fraction: 0.4),
             .result(gains: RGBGains(r: 0.92, g: 0.97, b: 1), preDeltaE: 12, postDeltaE: 2.1, verdict: .improved),
-            .failure(code: 3, message: "sensor unavailable"),
+            .failure(code: LinkFailure.session.rawValue, message: "sensor unavailable"),
+            .failure(code: LinkFailure.cancelled.rawValue, message: "cancelled"),
+            .failure(code: LinkFailure.measurementComplete.rawValue, message: "measurement complete"),
             .placementRequest(sessionID: request.sessionID),
             .placementEnd(sessionID: request.sessionID),
             .previewSample(sessionID: request.sessionID, sample: sample, stable: true),
+            .depthAlignment(sessionID: request.sessionID,
+                reading: .init(status: .estimate, distanceMeters: 0.5, tiltDegrees: 4, residualMeters: 0.001,
+                               message: "Advisory estimate")),
+            .depthAlignment(sessionID: request.sessionID, reading: .init(status: .unavailable, message: "No TrueDepth")),
         ]
 
         for message in messages {

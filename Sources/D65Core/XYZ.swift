@@ -1,6 +1,6 @@
 import Foundation
 
-/// CIE 1931 tristimulus values, relative or absolute.
+/// Tristimulus values, relative or absolute. The observer is supplied by the measurement context.
 public struct XYZ: Codable, Hashable, Sendable {
     public var x: Double
     public var y: Double
@@ -55,7 +55,8 @@ public struct Chromaticity: Codable, Hashable, Sendable {
         )
     }
 
-    /// Correlated colour temperature, McCamy's cubic approximation.
+    /// Correlated colour temperature, McCamy's cubic approximation for CIE 1931 xy.
+    /// CIE 2015 coordinates require an observer-specific CCT calculation.
     /// Good to roughly ±2 K near the Planckian locus for typical display whites.
     public func correlatedColorTemperature() -> Double {
         let n = (x - 0.3320) / (0.1858 - y)

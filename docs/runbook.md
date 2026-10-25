@@ -40,8 +40,8 @@ xcrun devicectl device install app --device "$D65_DEVICE_ID" \
 ```
 
 Free personal-team signing expires after seven days; rebuild and reinstall when necessary. A USB
-connection pairs/installs the app; the probe still discovers the Mac using Bonjour. Protocol v3 is
-required on both sides. The `helloV2` case name is historical; its `protocolVersion` field must be 3.
+connection pairs/installs the app; the probe still discovers the Mac using Bonjour. Protocol v4 is
+required on both sides. The `helloV2` case name is historical; its `protocolVersion` field must be 4.
 
 ## Start a session
 
@@ -70,6 +70,15 @@ under room lighting can also settle. The operator must position it against the a
 Use `serve` without `--apply` for measurement only. `--apply` never keeps a correction after the
 experiment. Ctrl-C/SIGTERM stops the host through cleanup; closing the probe mid-run cancels the
 measurement. Restoration errors are reported and retained in the experiment record.
+
+## Optional pre-contact depth aid
+
+Tap **Use TrueDepth alignment** on the phone and allow Camera access if you want approximate
+distance/tilt while approaching the display. Watch the advisory on the Mac. Finish depth alignment
+before measuring; it also stops at the chosen near-screen handover threshold or times out. Camera
+shutdown and ALS settling precede colour sampling. Unavailable depth is a fallback to the outline,
+not evidence of snug contact. See [details and hardware-validation limits](truedepth-alignment.md).
+The historical protocol-v3 run below did not use this feature.
 
 ## Read and retain the evidence
 

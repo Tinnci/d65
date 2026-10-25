@@ -95,6 +95,10 @@ import SwiftUI
     }
 
     func startNow() {
+        guard placement.alignment?.blocksColourSampling != true else {
+            notice = "Finish TrueDepth alignment on the iPhone first."
+            return
+        }
         guard step == .place, let display = selected, let service else { return }
         agent.prepareForCalibration(identity: display.identity)
         patchIndex = 0; passes = []; verifyingPass = nil; record = nil; summary = nil; saveError = nil
@@ -108,7 +112,7 @@ import SwiftUI
     func back() {
         switch step {
         case .connect: step = .prepare
-        case .place: service?.endPlacement(); step = .prepare
+        case .place: service?.endPlacement(announceCancellation: true); step = .prepare
         case .measure: service?.cancelRun()
         default: break
         }

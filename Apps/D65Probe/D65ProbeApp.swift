@@ -1,5 +1,6 @@
 import D65Core
 import D65Link
+import D65ProbeSupport
 import SwiftUI
 
 @main
@@ -11,7 +12,11 @@ struct D65ProbeApp: App {
         WindowGroup {
             ProbeView(model: model)
                 .onAppear { model.start() }
-                .onChange(of: scenePhase) { _, phase in if phase != .active { model.didLeaveForeground() } }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { model.didBecomeActive() } else { model.didLeaveForeground() }
+                    if phase == .background { model.didEnterBackground() }
+                }
+                .onDisappear { model.stop() }
         }
     }
 }
@@ -34,7 +39,11 @@ struct ProbeView: View {
             background.ignoresSafeArea()
             VStack(spacing: 0) {
                 Spacer()
-                content.frame(maxWidth: 340).padding(.horizontal, 28)
+                VStack(spacing: 22) {
+                    content
+                    if !faceDown { hapticControls }
+                }
+                .frame(maxWidth: 340).padding(.horizontal, 28)
                 Spacer()
                 footer.padding(.bottom, 12)
             }
@@ -57,7 +66,9 @@ struct ProbeView: View {
                     text: "D65 Probe needs a sensor source. The private ambient-light reader lives in local/als-probe and is compiled in only on your own machine.")
         case .searching:
             Message(mark: .none, title: "Looking for your Mac…",
-                    text: "Open Calibrate Display… on the Mac. Both devices must be on the same Wi-Fi.", busy: true)
+                    text: "Open Calibrate Display… on the Mac. Both devices must be on the same Wi-Fi.", busy: true) {
+                alignmentControls(dimmed: false)
+            }
         case .localNetworkOff(let text):
             Message(mark: .critical, title: "Local Network is off", text: text + " Turn it on to find your Mac.") {
                 Button("Open Settings") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
@@ -65,9 +76,14 @@ struct ProbeView: View {
             }
         case .ready:
             Message(mark: .held, title: "Connected to D65",
-                    text: "When the Mac shows the outline, press this phone face-down inside it, top edge up. You’ll feel a tap when measuring starts.")
+                    text: "When the Mac shows the outline, press this phone face-down inside it, top edge up. You’ll feel a tap when measuring starts.") {
+                alignmentControls(dimmed: false)
+            }
         case .placing:
-            DimMessage(title: "Face-down on the outline", text: "Hold still")
+            VStack(spacing: 16) {
+                DimMessage(title: "Face-down on the outline", text: "Hold still")
+                alignmentControls(dimmed: true)
+            }
         case .measuring(let phase, let fraction):
             DimMessage(title: "Measuring \(phase)", text: fraction.map { "\(Int($0 * 100)) %" } ?? "Keep still")
         case .result(let verdict, let before, let after):
@@ -77,6 +93,14 @@ struct ProbeView: View {
                         : verdict == .confirmed ? "Your display was already close to D65." : "See your Mac for the reason.") {
                 Button("OK") { model.dismissResult() }.buttonStyle(.bordered)
             }
+        case .cancelled:
+            Message(mark: .none, title: "Session cancelled", text: "No session correction was kept. You can start again on your Mac.") {
+                Button("OK") { model.dismissResult() }.buttonStyle(.bordered)
+            }
+        case .measurementComplete:
+            Message(mark: .none, title: "Measurement complete", text: "See your Mac for the measurements. Session changes have been restored.") {
+                Button("OK") { model.dismissResult() }.buttonStyle(.bordered)
+            }
         case .refused(let text):
             Message(mark: .critical, title: "The Mac refused this probe", text: text)
         case .failed(let text):
@@ -84,6 +108,43 @@ struct ProbeView: View {
                 Button("OK") { model.dismissResult() }.buttonStyle(.bordered)
             }
         }
+    }
+
+    private var hapticControls: some View {
+        VStack(spacing: 8) {
+            Picker("Haptics", selection: $model.hapticStrength) {
+                ForEach(ProbeHapticStrength.allCases, id: \.self) { strength in
+                    Text(strength.label).tag(strength)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Haptic strength")
+            Button("Preview haptics") { model.previewHaptics() }
+                .font(.caption)
+                .disabled(model.hapticStrength == .off)
+        }
+    }
+
+    @ViewBuilder private func alignmentControls(dimmed: Bool) -> some View {
+        VStack(spacing: 8) {
+            if let reading = model.alignmentReading {
+                Text(reading.summary).font(.callout.monospacedDigit())
+                if reading.status == .estimate {
+                    Text("Surface estimate only. Watch your Mac while approaching the screen.").font(.caption)
+                }
+            }
+            if model.alignmentReading?.blocksColourSampling == true {
+                Button("Finish depth alignment") { model.finishAlignment() }
+                    .buttonStyle(.bordered)
+                    .disabled(model.alignmentReading?.status == .stopping || model.alignmentReading?.status == .cooldown)
+            } else {
+                Button("Use TrueDepth alignment") { model.startAlignment() }.buttonStyle(.bordered)
+                Text("Optional distance and tilt before contact. Colour sampling waits until the camera is off.")
+                    .font(.caption)
+            }
+        }
+        .foregroundStyle(dimmed ? Color(white: 0.28) : .secondary)
+        .accessibilityElement(children: .contain)
     }
 
     private func title(for verdict: CalibrationVerdict) -> String {
