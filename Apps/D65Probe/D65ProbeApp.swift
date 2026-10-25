@@ -14,6 +14,11 @@ struct D65ProbeApp: App {
                 .onAppear {
                     #if DEBUG
                     let arguments = ProcessInfo.processInfo.arguments
+                    // Showcase, demo, recording and haptic-check runs never call start(), which is what
+                    // normally holds the screen on; keep it on so a capture or test isn't cut by auto-lock.
+                    if arguments.contains(where: { ["-showcase", "-demo", "-record", "-hapticCheck"].contains($0) }) {
+                        UIApplication.shared.isIdleTimerDisabled = true
+                    }
                     if let index = arguments.firstIndex(of: "-showcase"), index + 1 < arguments.count {
                         model.showcase(arguments[index + 1]); return
                     }
@@ -52,13 +57,10 @@ enum ProbeTheme {
 }
 
 /// The same motion vocabulary as the Mac app and the guide: a 700 ms (.32, .72, 0, 1) ease for a
-/// discrete change, a k100/c18 spring for anything following live input, nothing under Reduce Motion.
+/// discrete change, nothing under Reduce Motion.
 enum Motion {
     static func change(_ reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .timingCurve(0.32, 0.72, 0, 1, duration: 0.7)
-    }
-    static func follow(_ reduceMotion: Bool) -> Animation? {
-        reduceMotion ? nil : .interpolatingSpring(mass: 1, stiffness: 100, damping: 18)
     }
 }
 

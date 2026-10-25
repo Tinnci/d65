@@ -63,8 +63,8 @@ Check enabled-versus-disabled white readings on hardware before treating the eff
 ## Playback lifecycle
 
 Core Haptics patterns contain transient haptic events only, with no audio. Each cue has a relative
-weight (0.04–0.16) that each strength maps onto what the Taptic Engine renders: Subtle is
-0.25 + 1.6 × weight (about 0.32–0.51), Clear is 0.45 + 2.6 × weight (about 0.56–0.87), with sharpness
+weight (0.055–0.16) that each strength maps onto what the Taptic Engine renders: Subtle is
+0.25 + 1.6 × weight (about 0.34–0.51), Clear is 0.45 + 2.6 × weight (about 0.59–0.87), with sharpness
 0.4–0.54 so short taps stay crisp. The first tuning used the weights directly (0.045–0.16) and was
 not felt on an iPhone Air: transients below about 0.25 are lost against a hand or a desk.
 These numbers are API parameters, not calibrated physical forces. Patterns last

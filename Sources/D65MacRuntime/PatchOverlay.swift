@@ -14,6 +14,9 @@ import Foundation
     private var window: OverlayWindow?
     private var view: OverlayView?
     private var cursorHidden = false
+    /// Held while the overlay is up: idle display sleep or the screen saver would blank the patch the
+    /// phone is reading, and a sleeping display also stops answering DDC.
+    private var awake: NSObjectProtocol?
 
     init(screen: NSScreen, displayID: UInt32) { self.screen = screen; self.displayID = displayID }
 
@@ -48,10 +51,13 @@ import Foundation
     func close() {
         window?.orderOut(nil); window = nil; view = nil
         if cursorHidden { NSCursor.unhide(); cursorHidden = false }
+        if let awake { ProcessInfo.processInfo.endActivity(awake); self.awake = nil }
     }
 
     private func open() -> OverlayView {
         if let view { return view }
+        awake = awake ?? ProcessInfo.processInfo.beginActivity(
+            options: [.idleDisplaySleepDisabled, .userInitiated], reason: "Measuring the display with D65 Probe")
         let w = OverlayWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false, screen: screen)
         w.level = .screenSaver
         w.isOpaque = true

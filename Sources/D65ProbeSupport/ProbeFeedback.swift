@@ -21,7 +21,7 @@ public enum ProbeHapticStrength: String, CaseIterable, Sendable {
 public enum ProbeHapticCue: Sendable, Hashable, CaseIterable {
     case connected, disconnected, placement
     case alignmentStarted, surfaceFound, surfaceLevel, alignmentNear, alignmentFinished, alignmentUnavailable
-    case measurementStarted, patch, verification
+    case measurementStarted, verification
     case success, confirmed, measurementComplete, rejected, failure, refused, cancelled, selection
 
     public var isTerminal: Bool {
@@ -40,7 +40,6 @@ public enum ProbeHapticCue: Sendable, Hashable, CaseIterable {
         case .alignmentFinished: values = [(0, 0.12, 0.25)]
         case .alignmentUnavailable: values = [(0, 0.10, 0.12)]
         case .measurementStarted: values = [(0, 0.12, 0.22), (0.065, 0.14, 0.28)]
-        case .patch: values = [(0, 0.045, 0.12)]
         case .verification: values = [(0, 0.08, 0.20), (0.055, 0.08, 0.20)]
         case .success: values = [(0, 0.16, 0.3), (0.11, 0.12, 0.22)]
         case .confirmed: values = [(0, 0.11, 0.22), (0.075, 0.11, 0.22)]
@@ -126,8 +125,7 @@ public struct ProbeFeedbackPolicy: Sendable {
         // Even a deduplicated terminal refusal starts a quiet reconnect episode.
         if cue == .disconnected || cue == .refused { connectivityAlerted = true }
         if cue.isTerminal, terminalSent { return nil }
-        let repeatInterval = cue == .patch ? 0.35 : 1.5
-        guard now - (cueTimes[cue] ?? -.infinity) >= repeatInterval else { return nil }
+        guard now - (cueTimes[cue] ?? -.infinity) >= 1.5 else { return nil }
         guard cue.isTerminal || now - lastCueTime >= 0.35 else { return nil }
         if cue.isTerminal { terminalSent = true }
         cueTimes[cue] = now; lastCueTime = now

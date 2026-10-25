@@ -63,7 +63,9 @@ The figures are generated from the recorded sessions by `python3 scripts/make-fi
 </picture>
 
 A menu-bar agent with a five-step calibration window. The icon's ring holds the white point on D65;
-behind it runs the Planckian locus, cool to warm.
+behind it runs the Planckian locus, cool to warm. While its patches are up the Mac holds the display awake, and the
+phone keeps its own screen on for the whole session, so idle sleep, the screen saver or auto-lock
+can't cut a measurement short.
 
 <table>
   <tr>
