@@ -35,7 +35,8 @@ white, and says so.
 
 1. **Measure.** The Mac shows twelve full-screen patches while the phone lies face-down on an
    outline. Black gives the ambient light; four greys fit the panel's response.
-2. **Solve.** The white is compared with D65 using CIEDE2000 at equal luminance. Gains are solved
+2. **Solve.** The white is compared with D65 at equal luminance, using CIEDE2000 or CAM16-UCS (you
+   choose; both are recorded). Gains are solved
    in linear light and raised to 1/γ for the encoded table.
 3. **Verify and keep.** The correction is applied, white is measured again, and at most three
    passes run. Review shows the result on the real display; Keep hands it to a menu-bar agent that
@@ -116,6 +117,8 @@ swift run d65 display probe                                  # read-only
 swift run d65 display apply --r 0.97 --g 0.95 --b 1.0 --hold 10
 swift run d65 display reset
 swift run d65 serve            # advertise _d65._tcp, solve gains from a probe
+swift run d65 serve --apply --metric cam16-ucs   # score the white in CAM16-UCS instead of CIEDE2000
+swift run d65 error 0.3097 0.3218                # a white's distance from D65 in both metrics
 swift run d65 ddc probe        # read monitor controls over DDC/CI, with timings
 swift run d65 ddc capabilities # the monitor's MCCS capabilities string, parsed
 ```

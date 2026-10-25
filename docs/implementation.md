@@ -25,6 +25,15 @@ previews, holds, pauses and releases one display's correction over a `TransferTa
 per display identity and mode, with the contrast/preset snapshot used by `staleReason`.
 `SessionSummary` turns a record into the user-facing verdict and decides whether it can be kept.
 
+White error has two metrics (`WhiteErrorMetric`): CIEDE2000 at Y = 1 (the default) and CAM16-UCS
+ΔE' (`CAM16`, checked against the published CAM16 example to 10⁻⁶) for a viewer adapted to D65,
+at 64 cd/m² with a 20 % background and average surround. `CalibrationConfiguration.metric` picks the
+one the gate, target and stopping rule use; every record also carries `metricReports` with the
+baseline and best white in both. Each measurement records its `Observer`. The iPhone sensor's XYZ
+is taken as CIE 1931 2°. The CIE 2015 2° and 10° observers are named, but the engine refuses them
+until their colour-matching functions are added, so values from different observers are never compared.
+Older records and stores decode as CIEDE2000 and CIE 1931 2°.
+
 ## CLI
 
 ```sh

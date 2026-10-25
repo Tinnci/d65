@@ -16,6 +16,10 @@ import SwiftUI
     @Published private(set) var displays: [DisplayInfo] = []
     @Published var selectedID: UInt32?
     @Published var measureOnly = false
+    /// Remembered between sessions; CIEDE2000 unless the user picks otherwise.
+    @Published var metric: WhiteErrorMetric = WhiteErrorMetric(rawValue: UserDefaults.standard.string(forKey: "metric") ?? "") ?? .ciede2000 {
+        didSet { UserDefaults.standard.set(metric.rawValue, forKey: "metric") }
+    }
     @Published private(set) var monitorSettings: [String: UInt16] = [:]
     @Published private(set) var probe: ProbeIdentity?
     @Published private(set) var notice: String?
@@ -96,7 +100,9 @@ import SwiftUI
         patchIndex = 0; passes = []; verifyingPass = nil; record = nil; summary = nil; saveError = nil
         phase = CalibrationPatch.sequence[0].name
         step = .measure
-        service.run(configuration: CalibrationConfiguration(mode: measureOnly ? .measureOnly : .calibrate), displayID: display.id)
+        var configuration = CalibrationConfiguration(mode: measureOnly ? .measureOnly : .calibrate)
+        configuration.metric = metric
+        service.run(configuration: configuration, displayID: display.id)
     }
 
     func back() {

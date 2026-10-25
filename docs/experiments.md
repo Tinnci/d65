@@ -399,6 +399,20 @@ shows from what rests on that report alone.
 Still open from this run: E/F (does the bottom progress strip change the white reading?) and a
 quit-and-relaunch cycle with a read-only `d65 display probe` after each step.
 
+### The same session in CAM16-UCS
+
+`d65 error` re-reads the session's white in both metrics (ambient-subtracted chromaticities):
+
+```
+baseline  x 0.30965 y 0.32176   ΔE00 4.180   ΔE CAM16-UCS 4.436
+pass 1    x 0.31083 y 0.32594   ΔE00 1.686   ΔE CAM16-UCS 2.107
+```
+
+CAM16-UCS (viewed adapted to D65, D = 1) reads this white a little further from D65. Under
+`--metric cam16-ucs` the first pass would land just above the 2.0 target, so the engine would
+have run a second pass. The gate's thresholds were chosen on CIEDE2000, so they should be
+checked against CAM16-UCS sessions before relying on that metric.
+
 ### DDC is silent while the display sleeps
 
 About 40 minutes after the session, DDC/CI on the K27 stopped responding. `d65 ddc probe`

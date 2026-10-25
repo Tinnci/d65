@@ -22,6 +22,7 @@ import Foundation
         var record = ExperimentRecord(startedAt: clock.now, softwareRevision: softwareRevision,
             configuration: configuration, display: display.context, probe: probe.identity)
         var captured = false
+        var baselineWhite: XYZ?
         do {
             guard configuration.settlingSeconds.isFinite, configuration.settlingSeconds >= 0,
                   configuration.samplingSeconds.isFinite, configuration.samplingSeconds > 0,
@@ -33,6 +34,9 @@ import Foundation
                   (0...1).contains(configuration.gate.maximumLuminanceLoss) else {
                 throw CalibrationError.invalidConfiguration
             }
+            // Values from different observers must not be compared: refuse a target D65 has no data for.
+            guard let target = configuration.observer.d65 else { throw CalibrationError.invalidConfiguration }
+            let metric = configuration.metric
             try Task.checkCancellation()
             try display.begin()
             captured = true
@@ -48,7 +52,8 @@ import Foundation
             }
             guard let white = emitted["white"], white.y > 1 else { throw CalibrationError.invalidMeasurement }
             record.gamma = fitGamma(emitted)
-            record.baselineDeltaE = Self.whiteError(white)
+            record.baselineDeltaE = metric.whiteError(white, target: target)
+            baselineWhite = white
             switch configuration.mode {
             case .measureOnly:
                 record.outcome = .measured
@@ -63,7 +68,7 @@ import Foundation
                 transition(.verifying, record: &record)
                 let m = try await measure(.white, record: &record, display: display,
                     probe: probe, presenter: presenter, clock: clock).subtracting(ambient)
-                record.passes.append(CorrectionPass(number: 1, gains: gains, measured: m, deltaE: Self.whiteError(m)))
+                record.passes.append(CorrectionPass(number: 1, gains: gains, measured: m, deltaE: metric.whiteError(m, target: target)))
                 record.outcome = .measured
                 record.terminationReason = "Fixed gamma gain tested"
             case .ddcTest, .brightnessTest, .effectTest:
@@ -90,6 +95,7 @@ import Foundation
             record.terminationReason = String(describing: error)
             record.failure = Self.classify(error)
         }
+        record.metricReports = Self.metricReports(baseline: baselineWhite, record: record)
         onProgress?(.restoring)
         transition(.restoring, record: &record)
         probe.stop()
@@ -178,7 +184,8 @@ import Foundation
                          display: any CalibrationDisplay, probe: any CalibrationProbe,
                          presenter: any PatchPresenter, clock: any CalibrationClock) async throws {
         let config = record.configuration
-        let before = Self.whiteError(white)
+        let metric = config.metric, target = config.observer.d65 ?? .d65
+        let before = metric.whiteError(white, target: target)
         if before <= config.gate.minimumPreCorrectionDeltaE {
             record.outcome = .confirmed
             record.bestGains = .identity; record.bestDeltaE = before
@@ -190,7 +197,7 @@ import Foundation
         for step in stride(from: 20, through: 1, by: -1) {
             let candidate = CorrectionRequest(gains: full, alpha: Double(step) / 20).resolved()
             let predicted = WhitePointSolver.predictedWhite(after: candidate, measuredWhite: white)
-            if config.gate.verdict(preDeltaE: before, postDeltaE: Self.whiteError(predicted),
+            if config.gate.verdict(preDeltaE: before, postDeltaE: metric.whiteError(predicted, target: target),
                                    luminanceScale: predicted.y / white.y) == .improved {
                 selected = candidate
                 break
@@ -213,7 +220,7 @@ import Foundation
             let measured = try await measure(.white, record: &record, display: display, probe: probe,
                 presenter: presenter, clock: clock).subtracting(ambient)
             guard measured.y > 0 else { throw CalibrationError.invalidMeasurement }
-            let error = Self.whiteError(measured)
+            let error = metric.whiteError(measured, target: target)
             let pass = CorrectionPass(number: number, gains: cumulative, measured: measured, deltaE: error)
             record.passes.append(pass)
             onProgress?(.passMeasured(pass))
@@ -277,10 +284,20 @@ import Foundation
         return count >= 3 ? min(2.8, max(1.6, xy / xx)) : 2.2
     }
 
-    /// Compare white chromaticity at Y=1 so the metric does not change with probe distance/exposure.
-    public static func whiteError(_ white: XYZ) -> Double {
-        guard white.y > 0 else { return .infinity }
-        return ColorDifference.deltaE00(white.scaled(by: 1 / white.y), Chromaticity.d65.xyz())
+    /// CIEDE2000 white error at Y=1, the default metric. Sessions use their configured metric.
+    public static func whiteError(_ white: XYZ) -> Double { WhiteErrorMetric.ciede2000.whiteError(white) }
+
+    /// The baseline and best measured white under every metric, so a session can be compared in each.
+    static func metricReports(baseline: XYZ?, record: ExperimentRecord) -> [MetricReport]? {
+        guard let baseline, let target = record.configuration.observer.d65 else { return nil }
+        let chosen = record.configuration.metric
+        let bestPass = record.bestGains.flatMap { gains in record.passes.last { $0.gains == gains } }
+        let best = bestPass?.measured ?? baseline
+        return WhiteErrorMetric.allCases.map { metric in
+            MetricReport(metric: metric, baseline: metric.whiteError(baseline, target: target),
+                         best: metric == chosen ? (record.bestDeltaE ?? metric.whiteError(best, target: target))
+                                                : metric.whiteError(best, target: target))
+        }
     }
 
     private func testControl(_ code: UInt8, value: UInt16, ambient: XYZ, record: inout ExperimentRecord,

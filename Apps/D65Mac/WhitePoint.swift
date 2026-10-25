@@ -36,6 +36,8 @@ struct WhitePointGlyph: View {
 /// and this session's white, one dot per pass.
 struct ChromaticityPlot: View {
     let points: [Chromaticity]
+    /// Rings and the spoken summary use the session's own metric.
+    var metric: WhiteErrorMetric = .ciede2000
 
     var body: some View {
         let D65 = Self.D65
@@ -61,7 +63,7 @@ struct ChromaticityPlot: View {
             }
             for (limit, dash) in [(5.0, [4.0, 3.0]), (2.0, [])] {
                 var ring = Path()
-                for (i, point) in Self.contour(limit).enumerated() {
+                for (i, point) in Self.contour(limit, metric: metric).enumerated() {
                     i == 0 ? ring.move(to: p(point.x, point.y)) : ring.addLine(to: p(point.x, point.y))
                 }
                 ring.closeSubpath()
@@ -88,11 +90,11 @@ struct ChromaticityPlot: View {
 
     private var accessibilityText: String {
         guard let first = points.first, let last = points.last else { return "Chromaticity plot around D65" }
-        return "White moved from ΔE \(Format.deltaE(Self.error(first))) to \(Format.deltaE(Self.error(last))) in \(points.count - 1) passes"
+        return "White moved from \(metric.label) \(Format.deltaE(Self.error(first, metric: metric))) to \(Format.deltaE(Self.error(last, metric: metric))) in \(points.count - 1) passes"
     }
 
     static let D65 = Chromaticity.d65
-    static func error(_ c: Chromaticity) -> Double { CalibrationEngine.whiteError(c.xyz()) }
+    static func error(_ c: Chromaticity, metric: WhiteErrorMetric = .ciede2000) -> Double { metric.whiteError(c.xyz()) }
 
     /// Kim et al. cubic spline approximation of the Planckian locus, 4000–25000 K.
     static func planck(_ t: Double) -> Chromaticity {
@@ -100,19 +102,20 @@ struct ChromaticityPlot: View {
         return Chromaticity(x: x, y: 3.0817580 * pow(x, 3) - 5.87338670 * x * x + 3.75112997 * x - 0.37001483)
     }
 
-    private static var contours: [Double: [Chromaticity]] = [:]
-    static func contour(_ limit: Double) -> [Chromaticity] {
-        if let cached = contours[limit] { return cached }
+    private static var contours: [String: [Chromaticity]] = [:]
+    static func contour(_ limit: Double, metric: WhiteErrorMetric) -> [Chromaticity] {
+        let key = "\(metric.rawValue)-\(limit)"
+        if let cached = contours[key] { return cached }
         let points = stride(from: 0.0, to: 360, by: 5).map { degrees -> Chromaticity in
             let a = degrees * .pi / 180
             var lo = 0.0, hi = 0.03
             for _ in 0..<32 {
                 let m = (lo + hi) / 2
-                error(Chromaticity(x: D65.x + m * cos(a), y: D65.y + m * sin(a))) < limit ? (lo = m) : (hi = m)
+                error(Chromaticity(x: D65.x + m * cos(a), y: D65.y + m * sin(a)), metric: metric) < limit ? (lo = m) : (hi = m)
             }
             return Chromaticity(x: D65.x + lo * cos(a), y: D65.y + lo * sin(a))
         }
-        contours[limit] = points
+        contours[key] = points
         return points
     }
 }

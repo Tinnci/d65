@@ -16,6 +16,8 @@ public struct StoredCorrection: Codable, Sendable, Equatable, Identifiable {
     public let deltaE: Double
     public let createdAt: Date
     public let monitorSettings: [String: UInt16]
+    /// The metric `baselineDeltaE` and `deltaE` are in (absent in older stores: CIEDE2000).
+    public let metric: WhiteErrorMetric?
 
     public init(record: ExperimentRecord, gains: RGBGains, createdAt: Date = Date()) {
         id = record.id; displayIdentity = record.display.identity; displayName = record.display.name
@@ -23,6 +25,7 @@ public struct StoredCorrection: Codable, Sendable, Equatable, Identifiable {
         self.gains = gains; gamma = record.gamma
         baselineDeltaE = record.baselineDeltaE ?? .nan; deltaE = record.bestDeltaE ?? .nan
         self.createdAt = createdAt; monitorSettings = record.display.monitorSettings
+        metric = record.configuration.metric
     }
 
     public var modeSignature: String { Self.modeSignature(width: width, height: height, refreshRate: refreshRate) }

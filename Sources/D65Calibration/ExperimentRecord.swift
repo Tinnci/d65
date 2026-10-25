@@ -38,6 +38,13 @@ public struct ControlExperiment: Codable, Sendable {
     public let restored: XYZ
     public let effective: Bool
 }
+/// Baseline and best white error under one metric, so every session can be read in each metric.
+public struct MetricReport: Codable, Sendable, Equatable {
+    public let metric: WhiteErrorMetric
+    public let baseline: Double
+    public let best: Double
+}
+
 public struct ExperimentRecord: Codable, Sendable {
     public let schemaVersion: Int
     public let whiteErrorMetric: String
@@ -63,12 +70,17 @@ public struct ExperimentRecord: Codable, Sendable {
     /// Structured failure kind and the patch being measured when it happened (absent in older records).
     public var failure: CalibrationFailure?
     public var failedPhase: String?
+    /// The observer the measured XYZ belongs to (absent in older records, which were CIE 1931 2°).
+    public var observer: Observer?
+    /// The baseline and best white in every metric (absent in older records).
+    public var metricReports: [MetricReport]?
     public var restorationErrors: [String] = []
     public var stateHistory: [CalibrationState] = [.idle]
 
     public init(id: UUID = UUID(), startedAt: Date, softwareRevision: String,
                 configuration: CalibrationConfiguration, display: DisplayContext, probe: ProbeIdentity) {
-        schemaVersion = 1; whiteErrorMetric = "CIEDE2000, white normalized to Y=1"
+        schemaVersion = 1; whiteErrorMetric = configuration.metric.definition
+        observer = configuration.observer
         self.id = id; self.startedAt = startedAt
         self.softwareRevision = softwareRevision; self.configuration = configuration
         self.display = display; self.probe = probe
@@ -91,14 +103,19 @@ public struct ExperimentRecord: Codable, Sendable {
                 patch.samples.count, patch.mean.y, patch.standardError.y, xy?.x ?? 0, xy?.y ?? 0))
         }
         lines.append(String(format: "gamma %.3f", gamma))
-        if let baselineDeltaE { lines.append(String(format: "baseline ΔE00 %.2f (Y=1)", baselineDeltaE)) }
+        let unit = configuration.metric.label
+        lines.append("metric \(whiteErrorMetric); observer \((observer ?? .cie1931TwoDegree).rawValue)")
+        if let baselineDeltaE { lines.append(String(format: "baseline %@ %.2f", unit, baselineDeltaE)) }
         if let bestDeltaE, let bestGains {
-            lines.append(String(format: "best measured ΔE00 %.2f R=%.4f G=%.4f B=%.4f",
+            lines.append(String(format: "best measured %@ %.2f R=%.4f G=%.4f B=%.4f", unit,
                 bestDeltaE, bestGains.r, bestGains.g, bestGains.b))
         }
         for pass in passes {
-            lines.append(String(format: "  pass %d R=%.4f G=%.4f B=%.4f ΔE00=%.2f", pass.number,
-                pass.gains.r, pass.gains.g, pass.gains.b, pass.deltaE))
+            lines.append(String(format: "  pass %d R=%.4f G=%.4f B=%.4f %@=%.2f", pass.number,
+                pass.gains.r, pass.gains.g, pass.gains.b, unit, pass.deltaE))
+        }
+        for report in metricReports ?? [] {
+            lines.append(String(format: "  %@ %.2f → %.2f", report.metric.label, report.baseline, report.best))
         }
         for control in controls {
             lines.append(String(format: "  VCP 0x%02X %d→%d ΔY=%+.1f%% effect=%@", control.code,

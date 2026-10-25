@@ -110,6 +110,18 @@ private struct PrepareStep: View {
             Guide("Leave contrast and the picture preset as they are. D65 records them, and changing either later makes the correction stale.")
             Guide("You’ll press the iPhone face-down against the screen, inside an outline. Its own screen goes dark while it measures.")
         }
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Colour difference", selection: $model.metric) {
+                Text("CIEDE2000").tag(WhiteErrorMetric.ciede2000)
+                Text("CAM16-UCS").tag(WhiteErrorMetric.cam16ucs)
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            Text(model.metric == .ciede2000
+                 ? "Scores the white against D65 for the quality gate and the stopping rule. Review shows both metrics."
+                 : "CAM16-UCS, viewed adapted to D65. The gate keeps its thresholds, which were chosen on CIEDE2000; Review shows both metrics.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
         Toggle("Measure only, without correcting", isOn: $model.measureOnly)
     }
 }
@@ -175,7 +187,7 @@ private struct MeasureStep: View {
         PatchStrip(current: model.patchIndex)
         if !model.passes.isEmpty || model.verifyingPass != nil {
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
-                GridRow { Text("Pass"); Text("White"); Text("ΔE00") }.foregroundStyle(.secondary)
+                GridRow { Text("Pass"); Text("White"); Text(model.metric.label) }.foregroundStyle(.secondary)
                 ForEach(model.passes, id: \.number) { pass in
                     GridRow {
                         Text("\(pass.number)")
@@ -215,9 +227,9 @@ private struct ReviewStep: View {
             let trajectory = record.whiteTrajectory
             if trajectory.count > 0, summary.tone != .critical {
                 HStack(alignment: .top, spacing: 14) {
-                    ChromaticityPlot(points: trajectory).frame(width: 220, height: 220)
+                    ChromaticityPlot(points: trajectory, metric: record.configuration.metric).frame(width: 220, height: 220)
                     VStack(alignment: .leading, spacing: 8) {
-                        Figure(label: "ΔE00 to D65", before: Format.deltaE(record.baselineDeltaE),
+                        Figure(label: "\(record.configuration.metric.label) to D65", before: Format.deltaE(record.baselineDeltaE),
                                after: record.bestGains?.isIdentity == false ? Format.deltaE(record.bestDeltaE) : nil)
                         Figure(label: "White (approx.)", before: Format.cct(trajectory.first?.correlatedColorTemperature()),
                                after: trajectory.count > 1 ? Format.cct(bestChromaticity(record)?.correlatedColorTemperature()) : nil)
@@ -239,6 +251,13 @@ private struct ReviewStep: View {
                     GridRow { Text("Gamma (fitted)").foregroundStyle(.secondary); Text(String(format: "%.2f", record.gamma)) }
                     GridRow { Text("Outcome").foregroundStyle(.secondary); Text("\(record.outcome.rawValue) — \(record.terminationReason)") }
                     GridRow { Text("Metric").foregroundStyle(.secondary); Text(record.whiteErrorMetric) }
+                    GridRow { Text("Observer").foregroundStyle(.secondary); Text((record.observer ?? .cie1931TwoDegree).rawValue) }
+                    ForEach(record.metricReports ?? [], id: \.metric) { report in
+                        GridRow {
+                            Text(report.metric.label).foregroundStyle(.secondary)
+                            Text(String(format: "%.2f → %.2f", report.baseline, report.best))
+                        }
+                    }
                     GridRow {
                         Text("Record").foregroundStyle(.secondary)
                         Button(record.id.uuidString.prefix(8) + "….json") {

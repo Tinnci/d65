@@ -23,6 +23,13 @@ struct D65CLI {
             runGains(arguments)
         case "cct":
             runCCT(arguments)
+        case "error":
+            guard let values = parseDoubles(arguments, expected: 2) else { fail("error expects two numbers: x y") }
+            let white = Chromaticity(x: values[0], y: values[1]).xyz()
+            for metric in WhiteErrorMetric.allCases {
+                let label = metric.label.padding(toLength: 14, withPad: " ", startingAt: 0)
+                print(label + String(format: "%7.3f   ", metric.whiteError(white)) + metric.definition)
+            }
         case "verify":
             runVerification(arguments)
         case "display":
@@ -53,6 +60,9 @@ struct D65CLI {
                   Per-channel gains that move a measured white to the target
                   chromaticity (D65 by default).
 
+              d65 error <x> <y>
+                  Distance of a white's chromaticity from D65, in CIEDE2000 and CAM16-UCS.
+
               d65 cct <x> <y>
                   Correlated colour temperature of a chromaticity.
 
@@ -71,7 +81,7 @@ struct D65CLI {
               d65 display reset
                   Restore the system ColorSync display settings.
 
-              d65 serve [--port <p>] [--display-id <id>] [--apply]
+              d65 serve [--port <p>] [--display-id <id>] [--apply] [--metric ciede2000|cam16-ucs]
                   Advertise _d65._tcp and solve gains from probe measurements.
 
               d65 ddc probe [--display-id <id>]
@@ -242,7 +252,15 @@ struct D65CLI {
                 ("--gamma-test", .gammaTest), ("--brightness-test", .brightnessTest), ("--effect-test", .effectTest)]
             let selected = flags.filter { arguments.contains($0.0) }
             guard selected.count <= 1 else { fail("choose only one calibration/test mode") }
-            let config = CalibrationConfiguration(mode: selected.first?.1 ?? .measureOnly)
+            var config = CalibrationConfiguration(mode: selected.first?.1 ?? .measureOnly)
+            if let index = arguments.firstIndex(of: "--metric") {
+                let names = ["ciede2000": WhiteErrorMetric.ciede2000, "cam16-ucs": .cam16ucs]
+                guard index + 1 < arguments.count, let metric = names[arguments[index + 1]] else {
+                    fail("--metric expects ciede2000 or cam16-ucs")
+                }
+                config.metric = metric
+            }
+            print("white error: \(config.metric.definition)")
             let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent("local/experiments", isDirectory: true)
             let revisionProcess = Process()

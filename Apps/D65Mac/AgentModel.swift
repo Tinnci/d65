@@ -39,9 +39,9 @@ import SwiftUI
             guard let correction else { return display.isBuiltin ? "Not calibrated · built-in" : "Not calibrated" }
             if let stale { return "Stale · \(stale.description)" }
             switch hold {
-            case .paused: return "Correction off · ΔE00 \(Format.deltaE(correction.deltaE)) when on"
+            case .paused: return "Correction off · \((correction.metric ?? .ciede2000).label) \(Format.deltaE(correction.deltaE)) when on"
             case .previewing: return "Previewing"
-            default: return "Corrected · ΔE00 \(Format.deltaE(correction.deltaE)) · \(Format.relative(correction.createdAt))"
+            default: return "Corrected · \((correction.metric ?? .ciede2000).label) \(Format.deltaE(correction.deltaE)) · \(Format.relative(correction.createdAt))"
             }
         }
     }

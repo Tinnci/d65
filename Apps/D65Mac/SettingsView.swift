@@ -62,13 +62,13 @@ private struct HistoryView: View {
                     TableColumn("Result") { record in
                         Text(SessionSummary(record: record).title).foregroundStyle(record.outcome == .failed ? Theme.warn : .primary)
                     }
-                    TableColumn("ΔE00") { record in
-                        Text(record.bestGains?.isIdentity == false
+                    TableColumn("White error") { record in
+                        Text((record.bestGains?.isIdentity == false
                              ? "\(Format.deltaE(record.baselineDeltaE)) → \(Format.deltaE(record.bestDeltaE))"
-                             : Format.deltaE(record.baselineDeltaE))
+                             : Format.deltaE(record.baselineDeltaE)) + " " + record.configuration.metric.label)
                             .monospacedDigit()
                     }
-                    .width(90)
+                    .width(150)
                 }
                 .contextMenu(forSelectionType: ExperimentRecord.ID.self) { ids in
                     Button("Show in Finder") {

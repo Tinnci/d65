@@ -20,6 +20,7 @@ public struct SessionSummary: Sendable, Equatable {
         let improved = record.bestGains.map { !$0.isIdentity } == true && before != nil && best != nil
             && best! < before! && best! <= record.configuration.gate.maximumPostCorrectionDeltaE
         let fmt = { (value: Double) in String(format: "%.1f", value) }
+        let unit = record.configuration.metric.label
 
         if !record.restorationErrors.isEmpty {
             tone = .critical
@@ -32,19 +33,19 @@ public struct SessionSummary: Sendable, Equatable {
         switch record.outcome {
         case .converged:
             tone = .success; title = "White is within tolerance"
-            detail = "ΔE00 to D65 went from \(fmt(before ?? .nan)) to \(fmt(best ?? .nan)), measured in this session."
+            detail = "\(unit) to D65 went from \(fmt(before ?? .nan)) to \(fmt(best ?? .nan)), measured in this session."
             suggestion = nil; canKeep = improved; canRetry = true
         case .stoppedImproving, .exhausted:
             tone = improved ? .partial : .info
             title = improved ? "Improved, then levelled off" : "No pass improved the white"
             detail = improved
-                ? "ΔE00 went from \(fmt(before!)) to \(fmt(best!)). Further passes didn’t help, so the best pass is shown."
+                ? "\(unit) went from \(fmt(before!)) to \(fmt(best!)). Further passes didn’t help, so the best pass is shown."
                 : "Every measured correction was no better than the original, so nothing is applied."
             suggestion = improved ? nil : "Make sure the phone stays flat and still, then try again."
             canKeep = improved; canRetry = true
         case .confirmed:
             tone = .success; title = "Already within tolerance"
-            detail = "White measured ΔE00 \(fmt(before ?? .nan)) from D65, inside the \(fmt(record.configuration.gate.minimumPreCorrectionDeltaE)) threshold. No correction is needed."
+            detail = "White measured \(unit) \(fmt(before ?? .nan)) from D65, inside the \(fmt(record.configuration.gate.minimumPreCorrectionDeltaE)) threshold. No correction is needed."
             suggestion = nil; canKeep = false; canRetry = true
         case .rejected:
             tone = .info; title = "No correction passed the quality gate"
@@ -55,7 +56,7 @@ public struct SessionSummary: Sendable, Equatable {
             canKeep = false; canRetry = true
         case .measured:
             tone = .info; title = "Measurement complete"
-            detail = before.map { "White measured ΔE00 \(fmt($0)) from D65. Nothing was changed." } ?? "Nothing was changed."
+            detail = before.map { "White measured \(unit) \(fmt($0)) from D65. Nothing was changed." } ?? "Nothing was changed."
             suggestion = nil; canKeep = false; canRetry = true
         case .cancelled:
             tone = .info; title = "Cancelled"

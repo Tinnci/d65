@@ -37,7 +37,7 @@ struct Poster: View {
                 Step(p: p, number: 2, title: "Measure",
                      text: "Twelve full-screen patches, 0.5 s to settle and 2 s of sampling each, outliers dropped around the median. Black gives the ambient light to subtract; four greys fit the panel’s gamma.") { PatchesVisual(p: p) }
                 Step(p: p, number: 3, title: "Solve",
-                     text: "The measured white is compared with D65 using CIEDE2000 at equal luminance. Gains come from the sRGB matrix and are scaled so the brightest channel stays at 1.") { SolveVisual(p: p) }
+                     text: "The measured white is compared with D65 at equal luminance, in CIEDE2000 or CAM16-UCS; both are recorded. Gains come from the sRGB matrix, scaled so the brightest channel stays at 1.") { SolveVisual(p: p) }
                 Step(p: p, number: 4, title: "Apply and verify",
                      text: "Each gain scales the display’s gamma table as gain^(1/γ). White is measured again; up to three passes run, stopping at ΔE00 2 or when a pass improves by less than 0.3.") { PassesVisual(p: p) }
                 Step(p: p, number: 5, title: "Keep",

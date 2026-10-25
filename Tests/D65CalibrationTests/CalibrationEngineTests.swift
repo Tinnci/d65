@@ -362,3 +362,99 @@ import XCTest
         records.append(record)
     }
 }
+
+@MainActor final class MetricAndObserverTests: XCTestCase {
+    private func run(_ configuration: CalibrationConfiguration, verification: @escaping (Int) -> XYZ) async throws -> ExperimentRecord {
+        let display = MetricFakeDisplay(), probe = MetricFakeProbe(verification: verification)
+        return try await CalibrationEngine().run(configuration: configuration, display: display, probe: probe,
+            presenter: MetricFakePresenter(), clock: MetricClock(), recorder: MetricRecorder(), softwareRevision: "t")
+    }
+
+    func testCAM16UCSSessionsScoreAndReportInBothMetrics() async throws {
+        var configuration = CalibrationConfiguration(mode: .calibrate)
+        configuration.metric = .cam16ucs
+        let record = try await run(configuration) { _ in Chromaticity.d65.xyz(luminance: 95) }
+        XCTAssertEqual(record.outcome, .converged)
+        XCTAssertEqual(record.whiteErrorMetric, WhiteErrorMetric.cam16ucs.definition)
+        XCTAssertEqual(record.observer, .cie1931TwoDegree)
+        let baseline = try XCTUnwrap(record.baselineDeltaE)
+        XCTAssertEqual(baseline, WhiteErrorMetric.cam16ucs.whiteError(MetricFakeProbe.white), accuracy: 1e-9)
+        let reports = try XCTUnwrap(record.metricReports)
+        XCTAssertEqual(reports.map(\.metric), [.ciede2000, .cam16ucs])
+        XCTAssertEqual(reports[1].baseline, baseline, accuracy: 1e-9)
+        XCTAssertEqual(reports[0].baseline, CalibrationEngine.whiteError(MetricFakeProbe.white), accuracy: 1e-9)
+        XCTAssertEqual(reports[0].best, 0, accuracy: 1e-6, "verified white is D65 itself")
+        XCTAssertTrue(SessionSummary(record: record).detail.contains("ΔE CAM16-UCS"))
+    }
+
+    func testObserverWithoutD65DataIsRefusedBeforeTouchingTheDisplay() async throws {
+        var configuration = CalibrationConfiguration(mode: .calibrate)
+        configuration.observer = .cie2015TenDegree
+        let display = MetricFakeDisplay()
+        let record = try await CalibrationEngine().run(configuration: configuration, display: display,
+            probe: MetricFakeProbe { _ in .zero }, presenter: MetricFakePresenter(), clock: MetricClock(),
+            recorder: MetricRecorder(), softwareRevision: "t")
+        XCTAssertEqual(record.outcome, .failed)
+        XCTAssertEqual(record.failure, .invalidConfiguration)
+        XCTAssertEqual(display.begins, 0)
+    }
+
+    func testOlderRecordsAndStoresDecodeWithDefaults() throws {
+        let configuration = try JSONDecoder().decode(CalibrationConfiguration.self, from: Data("""
+            {"mode":"calibrate","settlingSeconds":0.5,"samplingSeconds":2,"minimumSamples":3,"maximumPasses":3,
+             "targetDeltaE":2,"gate":{"minimumPreCorrectionDeltaE":2.5,"maximumPostCorrectionDeltaE":5,"maximumLuminanceLoss":0.2}}
+            """.utf8))
+        XCTAssertEqual(configuration.metric, .ciede2000)
+        XCTAssertEqual(configuration.observer, .cie1931TwoDegree)
+        let stored = try JSONDecoder().decode(StoredCorrection.self, from: Data("""
+            {"id":"05C682F6-10F3-459E-A4E0-6D319CC6680D","displayIdentity":"d","displayName":"K27","width":3840,
+             "height":2160,"refreshRate":60,"gains":{"r":0.98,"g":1,"b":0.93},"gamma":2.1,"baselineDeltaE":4.18,
+             "deltaE":1.69,"createdAt":0,"monitorSettings":{"contrast":50}}
+            """.utf8))
+        XCTAssertNil(stored.metric)
+    }
+}
+
+private let metricWhite = Chromaticity(x: 0.300, y: 0.315).xyz(luminance: 100)
+@MainActor private final class MetricClock: CalibrationClock {
+    var now = Date(timeIntervalSince1970: 1_800_000_000)
+    func sleep(seconds: Double) async throws { now.addTimeInterval(seconds) }
+}
+@MainActor private final class MetricFakeProbe: CalibrationProbe {
+    static let white = metricWhite
+    let identity = ProbeIdentity(model: "test", build: "test")
+    let verification: (Int) -> XYZ
+    var count = 0
+    init(verification: @escaping (Int) -> XYZ) { self.verification = verification }
+    func start(_ request: MeasurementRequest) throws { count += 1 }
+    func finish(_ request: MeasurementRequest) throws -> [TaggedMeasurement] {
+        let xyz: XYZ
+        if count > 12 { xyz = verification(count - 13) }
+        else if request.phase == "black" { xyz = .zero }
+        else if request.phase.hasPrefix("grey"), let level = Double(request.phase.dropFirst(4)) {
+            xyz = metricWhite.scaled(by: pow(level / 100, 2.2))
+        } else { xyz = metricWhite }
+        return (0..<4).map { i in
+            TaggedMeasurement(sessionID: request.sessionID, patchID: request.patchID, sample: MeasurementSample(xyz: xyz, lux: xyz.y),
+                receivedAt: request.startedAt.addingTimeInterval(request.settlingSeconds + 0.1 + Double(i) * 0.4))
+        }
+    }
+    @discardableResult func stop() -> [TaggedMeasurement] { [] }
+}
+@MainActor private final class MetricFakeDisplay: CalibrationDisplay {
+    let context = DisplayContext(identity: "d", name: "test", displayID: 1, width: 1, height: 1, refreshRate: 60)
+    var begins = 0
+    func begin() throws { begins += 1 }
+    func validate() throws {}
+    func setCumulativeGains(_ gains: RGBGains, gamma: Double) throws {}
+    func restore() throws {}
+    func readControl(_ code: UInt8) throws -> DDCValue { throw CalibrationError.controlUnavailable(code) }
+    func writeControl(_ code: UInt8, value: UInt16) throws { throw CalibrationError.controlUnavailable(code) }
+}
+@MainActor private final class MetricFakePresenter: PatchPresenter {
+    func show(_ patch: CalibrationPatch) async throws {}
+    func close() {}
+}
+@MainActor private final class MetricRecorder: ExperimentRecorder {
+    func save(_ record: ExperimentRecord) throws {}
+}

@@ -21,7 +21,28 @@ public struct CalibrationConfiguration: Codable, Sendable {
     public var maximumPasses: Int = 3
     public var targetDeltaE: Double = 2
     public var gate = QualityGate()
+    /// How white error is scored for the gate, the target and the stopping rule.
+    public var metric: WhiteErrorMetric = .ciede2000
+    /// The observer the probe's XYZ uses. The iPhone ALS reports XYZ computed by iOS, taken as CIE 1931 2°.
+    public var observer: Observer = .cie1931TwoDegree
     public init(mode: CalibrationMode = .measureOnly) { self.mode = mode }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode, settlingSeconds, samplingSeconds, minimumSamples, maximumPasses, targetDeltaE, gate, metric, observer
+    }
+    /// Records written before metrics and observers existed decode as CIEDE2000 and CIE 1931 2°.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try c.decode(CalibrationMode.self, forKey: .mode)
+        settlingSeconds = try c.decode(Double.self, forKey: .settlingSeconds)
+        samplingSeconds = try c.decode(Double.self, forKey: .samplingSeconds)
+        minimumSamples = try c.decode(Int.self, forKey: .minimumSamples)
+        maximumPasses = try c.decode(Int.self, forKey: .maximumPasses)
+        targetDeltaE = try c.decode(Double.self, forKey: .targetDeltaE)
+        gate = try c.decode(QualityGate.self, forKey: .gate)
+        metric = try c.decodeIfPresent(WhiteErrorMetric.self, forKey: .metric) ?? .ciede2000
+        observer = try c.decodeIfPresent(Observer.self, forKey: .observer) ?? .cie1931TwoDegree
+    }
 }
 
 public struct DisplayContext: Codable, Hashable, Sendable {
