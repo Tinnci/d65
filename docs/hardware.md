@@ -68,9 +68,10 @@ Two platform behaviours matter:
 1. **The table is reverted when the process that set it exits.** Verified: another process sees the
    scaled table while the setter is alive, then the original table returns. A shipping app must be a
    persistent agent; the CLI needs `--hold`.
-2. This display reports a **linear** table, so `GammaTable.scaled` multiplies the encoded ramp
-   directly. On a display with a non-linear calibrated table the same approximation applies, with
-   the error measured in [experiments.md](experiments.md) §7.
+2. This display reports a **linear** table, and the session transaction scales the captured
+   baseline with `GammaTable.scaledLinear` (`gain^(1/γ)`). It restores the exact captured curves
+   afterward rather than resetting global ColorSync defaults. See [experiments.md](experiments.md)
+   §§7–9 for the historical motivation.
 
 ## Why DDC failed over HDMI
 

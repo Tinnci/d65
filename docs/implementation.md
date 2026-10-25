@@ -1,112 +1,128 @@
 # Implementation
 
-## Modules
+See [architecture.md](architecture.md) for ownership, contracts, limitations and the module map.
 
+## Entry points
+
+`D65Calibration.CalibrationEngine.run` is the reusable workflow. Callers supply a configuration,
+selected display, probe, patch presenter, clock, recorder, and software revision. It returns a
+structured `ExperimentRecord` after cleanup; an attempt to overlap runs or a record-storage failure
+throws to the caller. Measurement/hardware failures and cancellation are recorded as outcomes.
+
+The engine reports `CalibrationProgress` through `onProgress`, records a structured `failure` and
+`failedPhase`, and throws `RecordSaveError` (carrying the restored record) when a record cannot be
+written.
+
+`D65MacRuntime.CalibrationService` hosts protocol v3 over Bonjour `_d65._tcp` and emits typed
+`SessionEvent`s. One probe connection is kept across sessions; the engine runs only when the client
+calls `run(configuration:displayID:)`, normally after `beginPlacement` reports `.settled`. The patch
+overlay takes key focus: Esc cancels (the engine restores), Space asks to start now. `d65 serve` and
+`Apps/D65Mac/SessionModel` both drive it.
+
+Keeping a result is separate from the engine, which always restores. `D65Calibration.CorrectionHold`
+previews, holds, pauses and releases one display's correction over a `TransferTableBackend`;
+`CorrectionStore` persists kept corrections (`Application Support/D65/Corrections.json`, schema 1)
+per display identity and mode, with the contrast/preset snapshot used by `staleReason`.
+`SessionSummary` turns a record into the user-facing verdict and decides whether it can be kept.
+
+## CLI
+
+```sh
+swift run d65 selftest
+swift run d65 gains <X> <Y> <Z> [--alpha <a>]
+swift run d65 cct <x> <y>
+swift run d65 verify <pre> <post> [--luminance-scale <s>]
+swift run d65 display list
+swift run d65 display probe [--display-id <id>]
+swift run d65 display apply --r <g> --g <g> --b <g> [--alpha <a>] [--hold <seconds>] [--display-id <id>]
+swift run d65 display reset
+swift run d65 ddc probe [--display-id <id>]
+swift run d65 ddc gain --r <n> --g <n> --b <n> [--display-id <id>]
+swift run d65 ddc writable [--display-id <id>]
+swift run d65 serve [--port <p>] [--display-id <id>]
 ```
-D65Core        colour maths, no I/O
-D65Measurement samples and normalisation
-D65Link        wire protocol and framing
-D65Display     output adapters (gamma table, DDC)
-d65            CLI
-```
 
-Dependencies point upward only: `D65Link → D65Core, D65Measurement`, `D65Display → D65Core`.
-Nothing in the libraries imports the CLI or the apps.
+Display selection defaults to the main display. DDC requires a unique EDID match to that selection;
+use `display list` to find the external screen's ID when the main screen is built in.
 
-### D65Core
+`serve` accepts at most one action flag:
 
-| Type | Purpose |
+| Flag | Action |
 |---|---|
-| `XYZ`, `Chromaticity` | tristimulus and xy; xyY conversion; McCamy CCT |
-| `Lab`, `ColorDifference.deltaE00` | CIEDE2000, validated against Sharma's reference pairs |
-| `Matrix3x3`, `DisplayPrimaries` | RGB↔XYZ derived from primaries (sRGB, Display P3) |
-| `WhitePointSolver` | measured white → per-channel gains; predicted white after gains |
-| `RGBGains` | three gains + blend alpha; `blended`, `attenuated`, `diagonalMatrix`, `luminanceScale` |
-| `QualityGate` | accept/reject thresholds: 2.5 pre, 5.0 post, 20 % luminance loss |
-| `GammaTable` | scale a transfer table; `scaledLinear` compensates display gamma (`gain^(1/γ)`) |
+| none | measure all patches, fit gamma, save record; no correction |
+| `--apply` | gated, measured correction, up to three passes, then restore |
+| `--gamma-test` | fixed B=0.70 linear-light gain, measure, restore |
+| `--ddc-test` | reduce hardware red gain by up to 25, measure, restore/verify |
+| `--brightness-test` | brightness 100, measure, restore against measured luminance |
+| `--effect-test` | test contrast 80 and VCP 0x6C=100, restoring between candidates |
 
-The solver works in linear RGB: `gains = (M⁻¹·target) / (M⁻¹·measured)`, then attenuates so the
-brightest channel is 1. Solving in XYZ instead would be subtly wrong for wide-gamut primaries.
+Ctrl-C and SIGTERM cancel through the same cleanup path. The standalone `display apply` is temporary and
+restores the captured tables after `--hold`; without a hold its effect is effectively instantaneous.
+`display reset` explicitly resets global ColorSync defaults. Raw `ddc gain` is a persistent manual
+write; `ddc writable` probes readback only and cannot establish optical effectiveness. Use the
+sensor-backed effect tests for that distinction.
 
-### D65Measurement
+## Sampling and protocol
 
-`MeasurementSample` (XYZ, lux, channels, reported CCT, timestamp, device) and
-`MeasurementNormalizer` (lux plausibility plus a median-centred robust mean).
+A session shows black, white, red, green, blue, yellow, cyan, magenta, and 20/40/60/80% grey patches.
+Each window defaults to 0.5 seconds settling plus 2 seconds sampling, with at least three accepted
+readings. The black mean is subtracted from emitted patches. The gamma fit uses a log-domain slope
+with at least three usable greys and bounds 1.6…2.8; otherwise gamma remains 2.2.
 
-### D65Link
-
-`CalibrationMessage` is the whole protocol as a `Codable` enum:
+Wire frames remain 4-byte big-endian length plus JSON, bounded to 1 MiB. Version 3 keeps the v2
+messages below and adds a placement handshake: the Mac sends `placementRequest`/`placementEnd`,
+the probe streams `previewSample(sessionID:sample:stable:)` with its motion-gate flag, and
+`PlacementMonitor` decides when 1.5 s of steady readings have passed. Refusals are sent to the phone
+as `failure` with a `LinkFailure` code (`busy`, `incompatible`) before the connection closes.
+Version 2 introduced:
 
 ```swift
-case hello(deviceModel:build:)
-case sensorCalibration(channels:wavelengths:)
-case ready(options:)
-case sample(MeasurementSample)
-case phasedSample(phase:sample:)      // sample tagged with the patch on screen
-case progress(phase:fraction:)
-case result(gains:preDeltaE:postDeltaE:verdict:)
-case failure(code:message:)
+case helloV2(deviceModel: String, build: String, protocolVersion: Int)
+case measurementRequest(MeasurementRequest)
+case taggedSample(sessionID: UUID, patchID: UUID, sample: MeasurementSample)
+case measurementEnd(sessionID: UUID, patchID: UUID)
+case sessionEnded(sessionID: UUID)
 ```
 
-Framing is a 4-byte big-endian length followed by JSON; `MessageFraming.drain` consumes complete
-frames and leaves partial tails. Dates use `secondsSince1970` so round-trips are exact.
+The legacy handshake is rejected with a rebuild diagnostic. Legacy messages remain decodable for
+historical data/tests; they do not feed a new session. Only the leased connection's correctly tagged
+samples enter the current request. The phone dims through the full session and restores its screen
+brightness on completion, failure, explicit stop or disconnect.
 
-### D65Display
+The ignored experiment project compiles the shared client from `Apps/D65Probe/LinkClient.swift`,
+so it speaks v3 after a rebuild. `D65Probe` finds a sensor through `SensorRegistry`: the class
+`D65LocalSensorFactory` (compiled from `local/als-probe/D65LocalSensor.swift` when present), else a
+labelled simulated sensor in the iOS Simulator, else none.
 
-- `DisplayOutput` — `apply(gains)`, `reset()`.
-- `DisplayModeKey` — resolution, refresh, dynamic range, chroma; stable persistence key.
-- `MacDisplayOutput` — scales the display's gamma table via `CGSetDisplayTransferByTable`,
-  restores with `CGDisplayRestoreColorSyncSettings`.
-- `DDCDisplay` — DDC/CI over `IOAVService`, ported from MonitorControl's Arm64DDC (MIT).
+## Output and records
 
-## CLI reference
+`TransferTableTransaction` owns gamma-table capture, cumulative application and exact restoration.
+`SelectedDisplay` adds mode checks and EDID-matched DDC access. DDC reply parsing validates transport
+success, checksum, reply opcode, control code and result status. Failed I2C reads return failure even
+if sending the request succeeded.
 
+Each session saves schema-v1 JSON in `local/experiments/<session UUID>.json` (CLI), or the app's
+Application Support directory. White-point ΔE00 in new records uses Y=1 normalization; historical
+records used the sensor's absolute Y. Dates use fractional Unix seconds, and nonfinite diagnostic
+values use explicit `NaN`/`+Infinity`/`-Infinity` strings (read with `ExperimentRecord.decode`). Measurement statistics and raw tagged attempts are preserved
+so the evidence is available beyond the printed summary.
+
+## Build and checks
+
+```sh
+swift build
+swift run d65 selftest
+swift test
+xcodegen generate
+xcodebuild -project D65.xcodeproj -scheme D65Mac CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project D65.xcodeproj -scheme D65Probe -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
-d65 selftest                         built-in checks (13 assertions, no XCTest needed)
-d65 gains <X> <Y> <Z>                solve gains for a measured white
-d65 cct <x> <y>                      CCT of a chromaticity
-d65 verify <pre> <post>              run the quality gate
-d65 display probe                    read the gamma table (no changes)
-d65 display apply --r --g --b [--hold N]
-d65 display reset                    restore ColorSync settings
-d65 ddc probe                        read luminance, contrast, RGB gain, input
-d65 ddc gain --r --g --b             write gains and verify the read-back
-d65 ddc writable                     one-step write probe: is this panel writable?
-d65 serve [--port] [--apply] [--ddc-test] [--gamma-test]
-```
 
-`serve` flags: `--apply` applies a solved correction; `--ddc-test` writes a -25 red gain and
-re-measures; `--gamma-test` applies a fixed B=0.70 gain and re-measures; `--brightness-test` writes
-brightness 100, re-measures white, restores the previous value and re-measures again.
+The app build stamps `git describe --always --dirty` into `D65SoftwareRevision` using
+`scripts/stamp-revision.sh`. Core/measurement/session code uses Swift 6. Platform host and CLI remain
+in Swift 5 language mode with explicit main-actor isolation at workflow boundaries.
 
-## Calibration session
-
-`d65 serve` advertises `_d65._tcp`. On `hello` it runs one session:
-
-1. Twelve patches, 2 s each: black, white, red, green, blue, yellow, cyan, magenta, then grey
-   20/40/60/80 %. The greys are used to fit the panel gamma (`Y/Y_white = level^γ`) before any
-   correction is computed. The probe is
-   told which patch is live via `progress`, and only samples during those windows.
-2. Ambient is subtracted from every patch using the black reading.
-3. White → gains → predicted ΔE00 → quality gate.
-4. If the full correction is rejected, alpha steps down from 1.0 in 0.05 increments until the gate
-   passes (largest usable blend).
-5. If applied, the white patch is re-measured **in the same session**, so the phone cannot move
-   between the before and after readings. The residual is solved and applied again, up to three
-   passes, stopping at ΔE00 ≤ 2 or when a pass stops improving. The best pass is reported, and the
-   gamma table is restored at the end.
-
-The full-screen patch window is AppKit at `.screenSaver` level, created lazily on the main thread.
-
-## Probe (not in this repository)
-
-`local/als-probe` is a sideloaded SwiftUI app. It creates an IOHID monitor client, reads the ALS
-event, gates on CoreMotion stability, and streams `phasedSample` messages over Bonjour. It holds no
-colour maths. See [research/als-iohid.md](research/als-iohid.md).
-
-## Tests
-
-- 13 XCTest cases across `D65CoreTests` and `D65LinkTests`.
-- `d65 selftest` re-checks the same invariants without XCTest, so the maths can be verified with
-  only the Command Line Tools installed.
-- CI runs `swift build`, `swift run d65 selftest` and `swift test` on `macos-15`.
+Tests cover colour reference pairs, effective-gain resolution, framing including v2, measurement
+window filtering, transactional gamma tables, engine outcomes/cleanup, DDC failures, connection
+isolation, measured brightness restoration and atomic record round trips. They do not substitute
+for a physical reference-colorimeter run.

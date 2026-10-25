@@ -8,25 +8,15 @@ public enum DisplayOutputError: Error, Equatable {
     case writeFailed(Int32)
 }
 
-/// A snapshot of a display's current transfer tables.
-public struct DisplayTransferSnapshot: Sendable {
-    public let displayID: UInt32
-    public let red: [Double]
-    public let green: [Double]
-    public let blue: [Double]
-
-    public var count: Int { red.count }
-}
-
 /// Applies per-channel gains to a display by scaling its existing gamma table.
 ///
 /// Uses only public CoreGraphics API. `reset()` restores the system's ColorSync
 /// state, which is what the Display pane's "Restore Defaults" does.
-public struct MacDisplayOutput: DisplayOutput {
+public struct MacDisplayOutput: DisplayOutput, TransferTableBackend {
     public let displayID: CGDirectDisplayID
     /// Effective display gamma used to convert a linear-light gain into a table scale.
     public var gamma: Double
-    private static let capacity = 256
+    private var capacity: Int { max(256, Int(CGDisplayGammaTableCapacity(displayID))) }
 
     public init(displayID: CGDirectDisplayID = CGMainDisplayID(), gamma: Double = 2.2) {
         self.displayID = displayID
@@ -34,14 +24,14 @@ public struct MacDisplayOutput: DisplayOutput {
     }
 
     public func probe() throws -> DisplayTransferSnapshot {
-        var red = [Float](repeating: 0, count: Self.capacity)
-        var green = [Float](repeating: 0, count: Self.capacity)
-        var blue = [Float](repeating: 0, count: Self.capacity)
+        var red = [Float](repeating: 0, count: capacity)
+        var green = [Float](repeating: 0, count: capacity)
+        var blue = [Float](repeating: 0, count: capacity)
         var sampleCount: UInt32 = 0
 
         let error = CGGetDisplayTransferByTable(
             displayID,
-            UInt32(Self.capacity),
+            UInt32(capacity),
             &red,
             &green,
             &blue,
@@ -60,24 +50,32 @@ public struct MacDisplayOutput: DisplayOutput {
         )
     }
 
+    /// Low-level residual operation relative to the current tables. Session code uses TransferTableTransaction.
     public func apply(_ gains: RGBGains) throws {
-        let snapshot = try probe()
-        let blended = gains.blended()
+        try apply(gains, relativeTo: probe())
+    }
 
-        let red = GammaTable.scaledLinear(snapshot.red, by: blended.r, gamma: gamma).map { Float($0) }
-        let green = GammaTable.scaledLinear(snapshot.green, by: blended.g, gamma: gamma).map { Float($0) }
-        let blue = GammaTable.scaledLinear(snapshot.blue, by: blended.b, gamma: gamma).map { Float($0) }
-
-        let error = CGSetDisplayTransferByTable(
-            displayID,
-            UInt32(snapshot.count),
-            red,
-            green,
-            blue
+    /// Set a cumulative correction relative to the captured baseline, never the current table.
+    public func apply(_ gains: RGBGains, relativeTo snapshot: DisplayTransferSnapshot) throws {
+        guard snapshot.displayID == displayID else { throw DisplayOutputError.writeFailed(-1) }
+        let corrected = DisplayTransferSnapshot(
+            displayID: displayID,
+            red: GammaTable.scaledLinear(snapshot.red, by: gains.r, gamma: gamma),
+            green: GammaTable.scaledLinear(snapshot.green, by: gains.g, gamma: gamma),
+            blue: GammaTable.scaledLinear(snapshot.blue, by: gains.b, gamma: gamma)
         )
-        guard error == .success else {
-            throw DisplayOutputError.writeFailed(error.rawValue)
+        try restore(corrected)
+    }
+
+    /// Restore only this display's exact captured tables, rather than global ColorSync defaults.
+    public func restore(_ snapshot: DisplayTransferSnapshot) throws {
+        guard snapshot.displayID == displayID, snapshot.count > 0,
+              snapshot.green.count == snapshot.count, snapshot.blue.count == snapshot.count else {
+            throw DisplayOutputError.writeFailed(-1)
         }
+        let error = CGSetDisplayTransferByTable(displayID, UInt32(snapshot.count),
+            snapshot.red.map(Float.init), snapshot.green.map(Float.init), snapshot.blue.map(Float.init))
+        guard error == .success else { throw DisplayOutputError.writeFailed(error.rawValue) }
     }
 
     public func reset() throws {

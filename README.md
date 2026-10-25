@@ -6,9 +6,10 @@ D65 is not a colourimeter replacement and not an ICC profiling tool. It does one
 display's white, solve for three per-channel gains, and apply them — with a quality gate that
 refuses corrections that do not measurably help.
 
-> Status: **scaffold**. The colour maths, CLI and link framing work and are self-tested. The two
-> app targets are shells; probe acquisition and the macOS output adapter are not implemented yet.
-> See the roadmap at the bottom.
+> Status: **experimental end-to-end workflow**. The CLI and Mac app share a tested calibration
+> engine, with exact gamma-table restoration and versioned experiment records. The sideloaded ALS
+> experiment supplies measurements; its absolute colour accuracy still needs reference validation.
+> See [status](docs/status.md) and [architecture](docs/architecture.md).
 
 ## Why the name
 
@@ -28,6 +29,7 @@ alone:
 swift build
 swift run d65 selftest
 swift run d65 gains 0.94 1.00 1.05
+swift run d65 display list                                   # find --display-id
 swift run d65 display probe                                  # read-only
 swift run d65 display apply --r 0.97 --g 0.95 --b 1.0 --hold 10
 swift run d65 display reset
@@ -36,7 +38,7 @@ swift run d65 ddc probe        # read the monitor's hardware RGB gain over DDC/C
 ```
 
 `--hold` matters: macOS restores the gamma table as soon as the process that set it exits, so an
-un-held `apply` is effectively a no-op. The app holds the correction for as long as it runs.
+un-held `apply` is effectively a no-op. Calibration sessions restore their starting tables when they finish. A persistent correction agent is future work.
 
 ```
 measured   x=0.3144 y=0.3344  CCT≈6382 K
@@ -65,10 +67,12 @@ the Command Line Tools. CI runs both.
 Sources/D65Core          XYZ, Lab, CIEDE2000, primaries, white-point solver, gains, quality gate
 Sources/D65Measurement   measurement model and normalisation
 Sources/D65Link          wire protocol and length-prefixed framing
-Sources/D65Display       display output abstraction and mode key
+Sources/D65Display       gamma transactions, DDC and mode keys
+Sources/D65Calibration   shared session engine, measurements, structured records
+Sources/D65MacRuntime    selected screen, patch presenter and Bonjour host
 Sources/d65              CLI: selftest, gains, cct, verify
-Apps/D65Mac              macOS app shell (SwiftUI)
-Apps/D65Probe            iPhone probe shell (SwiftUI)
+Apps/D65Mac              menu-bar agent and calibration session (SwiftUI)
+Apps/D65Probe            iPhone probe (SwiftUI); sensor injected locally
 docs/status.md           what works, what does not, next steps
 docs/implementation.md   modules, CLI reference, wire protocol
 docs/experiments.md      every measurement, with numbers
@@ -88,17 +92,29 @@ xcodegen generate
 open D65.xcodeproj
 ```
 
-They need Xcode 16 or later. Nothing in the app targets is load-bearing yet — `D65Mac` can run the
-solver against a simulated measurement and print the gains; `D65Probe` is a placeholder screen.
+They need Xcode 16 or later.
+
+- **D65Mac** is a menu-bar agent. It holds each display's kept correction while it runs, reapplies it
+  when the display returns, and marks it stale when contrast, preset or display mode changes.
+  *Calibrate Display…* opens a five-step session (Prepare, Connect, Place, Measure, Review): the
+  phone is placed on a life-size outline, measuring starts when its readings settle, and Review
+  previews the result on the real display before you keep or discard it. Esc always cancels, and
+  quitting restores every display.
+- **D65Probe** is the iPhone side, speaking protocol v3. The tracked app contains no private sensor
+  code: in the iOS Simulator it uses a clearly labelled simulated sensor, and on a device it uses the
+  private ALS reader only when `local/als-probe` exists, through optional sources in `project.yml`.
+  Without it the app says that no sensor is available.
 
 ## Design
 
-Four libraries, one direction of dependency:
+The maths, measurements, transport and hardware remain separate libraries:
 
 - **D65Core** — colour maths only, no I/O. This is where a bug is a maths bug.
 - **D65Measurement** — samples and robust averaging.
 - **D65Link** — the message enum and framing; the same file is compiled into both apps.
-- **D65Display** — the only place that knows how a correction reaches a screen.
+- **D65Display** — transfer-table transactions and hardware transport.
+- **D65Calibration** — actor-isolated session workflow and versioned experiment records.
+- **D65MacRuntime** — AppKit and Bonjour adapters shared by CLI and app.
 
 The probe is treated as a sensor, not a calibrator. It never computes gains, and the Mac never
 talks to a sensor directly. More detail in [docs/architecture.md](docs/architecture.md).
@@ -121,13 +137,13 @@ applied as per-channel gains through the render server. The full write-up — co
 ## Roadmap
 
 - [x] macOS output adapter: gamma-table gains, verified apply/read-back/reset
-- [ ] Menu-bar agent that holds the correction across process lifetime
-- [ ] Per-display-mode persistence and restore after crash
+- [x] Menu-bar agent that holds the correction across process lifetime
+- [x] Per-display-mode persistence; macOS reverts on exit and the agent reapplies at launch
 - [ ] Calibrate the probe's channel triple against a reference before trusting it as XYZ
 - [x] DDC/CI read path for monitor hardware gains (writes are ignored by this panel)
-- [ ] Probe acquisition: external sensor (supported) or sideloaded IOHID ALS (experimental, see docs/research/als-iohid.md)
-- [ ] End-to-end session over `D65Link` (Bonjour + framing)
-- [ ] Calibration store keyed by `DisplayModeKey`, with the `QualityGate` verdict recorded
+- [x] Sideloaded IOHID ALS acquisition experiment (absolute accuracy unvalidated; see docs/research/als-iohid.md)
+- [x] End-to-end session over `D65Link` (Bonjour, protocol v3 with placement handshake)
+- [x] Correction store keyed by display identity and mode, with the monitor settings it was measured at
 - [ ] Golden-dataset validation against a real colorimeter
 
 ## Licence

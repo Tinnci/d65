@@ -7,7 +7,13 @@ final class CalibrationMessageTests: XCTestCase {
     private let sample = MeasurementSampleStub.make()
 
     func testRoundTrip() throws {
+        let request = MeasurementRequest(sessionID: UUID(), phase: "white", startedAt: Date(timeIntervalSince1970: 100), settlingSeconds: 0.5, samplingSeconds: 2)
         let messages: [CalibrationMessage] = [
+            .helloV2(deviceModel: "iPhone18,4", build: "test", protocolVersion: 2),
+            .measurementRequest(request),
+            .taggedSample(sessionID: request.sessionID, patchID: request.patchID, sample: sample),
+            .measurementEnd(sessionID: request.sessionID, patchID: request.patchID),
+            .sessionEnded(sessionID: request.sessionID),
             .hello(deviceModel: "iPhone15,2", build: "21A360"),
             .sensorCalibration(channels: [0.9, 1.1, 0.7], wavelengths: [450, 550, 650]),
             .ready(options: ["patches": 5]),
@@ -16,6 +22,9 @@ final class CalibrationMessageTests: XCTestCase {
             .progress(phase: "white", fraction: 0.4),
             .result(gains: RGBGains(r: 0.92, g: 0.97, b: 1), preDeltaE: 12, postDeltaE: 2.1, verdict: .improved),
             .failure(code: 3, message: "sensor unavailable"),
+            .placementRequest(sessionID: request.sessionID),
+            .placementEnd(sessionID: request.sessionID),
+            .previewSample(sessionID: request.sessionID, sample: sample, stable: true),
         ]
 
         for message in messages {

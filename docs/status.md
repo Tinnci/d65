@@ -2,6 +2,16 @@
 
 Last updated 2026-10-25, after the experiments in [experiments.md](experiments.md).
 
+## Architecture update (software verification)
+
+The CLI and Mac app now share `D65Calibration` through `D65MacRuntime`. Sessions are main-actor
+isolated, restore captured gamma tables, distinguish termination outcomes and save schema-v1 JSON
+records. Protocol v2 requires rebuilding the local probe; legacy sessions are rejected. Tests cover
+failure/cancellation paths, consecutive sessions, connection isolation, DDC read errors and measured
+brightness restoration. See [architecture.md](architecture.md) and [implementation.md](implementation.md).
+No new physical calibration measurements have been taken for this refactor. New white-error metrics
+normalize Y=1 and must not be compared directly with the historical absolute-Y numbers below.
+
 ## Verified working
 
 | Capability | Evidence |
@@ -25,7 +35,7 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 | Problem | Cause | Consequence |
 |---|---|---|
 | Contrast changes invalidate a calibration | contrast shifts Δxy by 0.02, well beyond the correction size | poll 0x12 and mark stored calibrations stale when it changes |
-| DDC readback is untrustworthy | brightness reads 0 while lit; restoring by value dimmed the panel 34 % | every write must be verified with the sensor; restores are closed-loop on luminance |
+| DDC readback is untrustworthy | brightness reads 0 while lit; restoring by value dimmed the panel 34 % | every write must be verified with the sensor; brightness test restores use measured luminance when the sensor remains available |
 | DDC RGB gain writes have no effect | panel firmware ignores 0x16/0x18/0x1A, even in User preset | no hardware white-point correction on this display |
 | ~~One pass does not land on target~~ | fixed: `scaledLinear` compensates display gamma, then the loop iterates | 18.75 → 2.36 ΔE00 in two passes |
 | Blue/cyan unmeasurable in daylight | ambient Y ≈ 14 vs blue Y ≈ 10 | primaries incomplete unless the room is dark |
@@ -46,18 +56,17 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 
 ## Next steps, in order
 
-1. **Effect-verified DDC harness.** `d65 ddc effect-test`: for each candidate VCP, measure white,
-   write a large value, re-measure, restore by measured luminance, and classify the result as
-   effective / read-only / different semantics. Cache the outcome per display (EDID identity) so it
-   is probed once.
-2. **Menu-bar agent.** The gamma table is reverted when the setting process exits, so the shipping
-   app must be a persistent agent that holds the correction and restores on quit.
+1. **Hardware validation of the new harness.** `d65 serve --effect-test` now records measurements
+   and verifies restoration; `--brightness-test` adds measured restoration search. Run it with the
+   rebuilt protocol-v2 probe. Per-display capability caching and richer classifications remain future work.
+2. **Hardware run of the GUI flow.** The menu-bar agent, placement handshake, review preview and
+   correction store are built and unit-tested, not yet exercised on the HAN K27. Check that the
+   bottom-edge progress strip and the placement outline do not move the white reading (expect
+   ΔE00 difference < 0.2), and re-baseline the gate thresholds on the Y = 1 metric.
 3. **Manual controls.** Hardware (DDC) and software (gamma) sections, each with reset, with the
    hardware section disabled unless `d65 ddc writable` says the panel accepts writes.
-4. **Persistence.** Store per `DisplayModeKey` with a schema version, plus crash recovery to the
-   previous known-good table.
-5. **Alignment.** A stand or an on-screen outline, mirroring why Apple's flow asks the user to align
-   the phone and checks for motion.
+4. **Stale-correction policy.** A stale correction stays applied and is flagged. Measure once after a
+   contrast change to confirm it is still closer than none.
 
 ## Risks
 

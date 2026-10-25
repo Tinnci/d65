@@ -1,11 +1,14 @@
 import AppKit
 import D65Core
 import D65Display
+import D65Link
+import D65Calibration
+import D65MacRuntime
 import Foundation
 
 @main
 struct D65CLI {
-    static func main() {
+    @MainActor static func main() {
         var arguments = Array(CommandLine.arguments.dropFirst())
         guard let command = arguments.first else {
             printUsage()
@@ -56,16 +59,19 @@ struct D65CLI {
               d65 verify <preDeltaE> <postDeltaE> [--luminance-scale <s>]
                   Apply the quality gate and print the verdict.
 
-              d65 display probe
-                  Read the current gamma table of the main display (no changes).
+              d65 display list
+                  List display IDs for --display-id.
+
+              d65 display probe [--display-id <id>]
+                  Read the current gamma table of the selected display (no changes).
 
               d65 display apply --r <g> --g <g> --b <g> [--alpha <a>]
-                  Scale the main display's gamma table by the given gains.
+                  Scale the selected display's gamma table by the given gains.
 
               d65 display reset
                   Restore the system ColorSync display settings.
 
-              d65 serve [--port <p>] [--apply]
+              d65 serve [--port <p>] [--display-id <id>] [--apply]
                   Advertise _d65._tcp and solve gains from probe measurements.
 
               d65 ddc probe
@@ -75,6 +81,12 @@ struct D65CLI {
                   Write RGB gain (VCP 0x16/0x18/0x1A) and verify the read-back.
             """
         )
+    }
+
+    static func selectedDisplayID(_ options: [String: Double]) -> UInt32 {
+        guard let id = options["display-id"] else { return CGMainDisplayID() }
+        guard id.isFinite, id.rounded() == id, id >= 0, id <= Double(UInt32.max) else { fail("invalid display ID") }
+        return UInt32(id)
     }
 
     // MARK: - Commands
@@ -98,7 +110,7 @@ struct D65CLI {
                      measured.chromaticity?.x ?? 0,
                      measured.chromaticity?.y ?? 0,
                      measured.chromaticity?.correlatedColorTemperature() ?? 0))
-        print(String(format: "gains      R=%.4f G=%.4f B=%.4f  (alpha %.2f)", gains.r, gains.g, gains.b, gains.alpha))
+        print(String(format: "gains      R=%.4f G=%.4f B=%.4f  (alpha %.2f)", gains.r, gains.g, gains.b, alpha))
         if let predictedChromaticity = predicted.chromaticity {
             let deltaE = ColorDifference.deltaE00(measured, predicted)
             print(String(format: "predicted  x=%.4f y=%.4f  CCT≈%.0f K",
@@ -132,15 +144,20 @@ struct D65CLI {
         print(verdict.rawValue)
     }
 
-    static func runDisplay(_ arguments: [String]) {
+    @MainActor static func runDisplay(_ arguments: [String]) {
         #if os(macOS)
         guard let subcommand = arguments.first else {
             fail("display expects probe, apply or reset")
         }
         let options = parseOptions(arguments)
-        let output = MacDisplayOutput()
+        let output = MacDisplayOutput(displayID: selectedDisplayID(options))
 
         switch subcommand {
+        case "list":
+            for screen in NSScreen.screens {
+                let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
+                print("\(id)  \(screen.localizedName)\(id == CGMainDisplayID() ? " (main)" : "")")
+            }
         case "probe":
             do {
                 let snapshot = try output.probe()
@@ -162,21 +179,26 @@ struct D65CLI {
             guard let r = options["r"], let g = options["g"], let b = options["b"] else {
                 fail("apply needs --r, --g and --b")
             }
-            let gains = RGBGains(r: r, g: g, b: b, alpha: options["alpha"] ?? 1).blended()
+            let gains = CorrectionRequest(gains: RGBGains(r: r, g: g, b: b), alpha: options["alpha"] ?? 1).resolved()
+            let transaction = TransferTableTransaction(backend: output)
             do {
-                try output.apply(gains)
+                try transaction.begin()
+                try transaction.setCumulativeGains(gains, gamma: output.gamma)
                 print(String(format: "applied  R=%.4f  G=%.4f  B=%.4f", gains.r, gains.g, gains.b))
 
                 let hold = options["hold"] ?? 0
                 if hold > 0 {
                     print(String(format: "holding for %.1fs — macOS reverts the table when this process exits", hold))
                     Thread.sleep(forTimeInterval: hold)
-                    try output.reset()
-                    print("restored ColorSync display settings")
+                    try transaction.restore()
+                    print("restored captured display tables")
                 } else {
                     print("note: macOS restores the table as soon as this process exits; use --hold to keep it")
                 }
+                try transaction.restore()
             } catch {
+                do { try transaction.restore() }
+                catch { fail("display restoration failed: \(error)") }
                 fail("apply failed: \(error)")
             }
 
@@ -196,28 +218,79 @@ struct D65CLI {
         #endif
     }
 
-    static func runServe(_ arguments: [String]) {
+    @MainActor static func runServe(_ arguments: [String]) {
         #if os(macOS)
         setvbuf(stdout, nil, _IOLBF, 0)
         let options = parseOptions(arguments)
-        let port = UInt16(options["port"] ?? 50515)
+        let requestedPort = options["port"] ?? 50515
+        guard requestedPort.isFinite, requestedPort.rounded() == requestedPort,
+              requestedPort >= 1, requestedPort <= 65535 else { fail("port must be 1...65535") }
+        if let id = options["display-id"], (!id.isFinite || id.rounded() != id || id < 0 || id > Double(UInt32.max)) {
+            fail("invalid display ID")
+        }
+        let port = UInt16(requestedPort)
         let apply = arguments.contains("--apply")
 
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
         do {
-            let server = try CalibrationServer(
-                port: port,
-                applyToDisplay: apply,
-                ddcTest: arguments.contains("--ddc-test"),
-                gammaTest: arguments.contains("--gamma-test"),
-                brightnessTest: arguments.contains("--brightness-test"),
-                effectTest: arguments.contains("--effect-test")
-            )
+            let flags: [(String, CalibrationMode)] = [("--apply", .calibrate), ("--ddc-test", .ddcTest),
+                ("--gamma-test", .gammaTest), ("--brightness-test", .brightnessTest), ("--effect-test", .effectTest)]
+            let selected = flags.filter { arguments.contains($0.0) }
+            guard selected.count <= 1 else { fail("choose only one calibration/test mode") }
+            let config = CalibrationConfiguration(mode: selected.first?.1 ?? .measureOnly)
+            let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("local/experiments", isDirectory: true)
+            let revisionProcess = Process()
+            revisionProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            revisionProcess.arguments = ["describe", "--always", "--dirty"]
+            let revisionOutput = Pipe()
+            revisionProcess.standardOutput = revisionOutput
+            revisionProcess.standardError = FileHandle.nullDevice
+            try revisionProcess.run()
+            revisionProcess.waitUntilExit()
+            let revision = String(data: revisionOutput.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
+            let server = try CalibrationService(port: port, recordDirectory: directory,
+                softwareRevision: revision.isEmpty ? "unknown" : revision)
+            let displayID = options["display-id"].map { UInt32($0) }
+                ?? DisplayDirectory.preferred(in: DisplayDirectory.online())?.id ?? CGMainDisplayID()
+            var lastPlacement: PlacementState?
+            server.onEvent = { event in
+                switch event {
+                case .listening: print("advertising _d65._tcp; target display \(displayID); waiting for a protocol-v\(Link.protocolVersion) probe")
+                case .listenerFailed(let text), .probeRejected(let text), .runFailed(let text): print(text)
+                case .probeConnected(let identity):
+                    print("probe \(identity.model) (\(identity.build)) connected — place it on the outline")
+                    server.beginPlacement(displayID: displayID)
+                case .probeDisconnected: print("probe disconnected")
+                case .placement(let reading):
+                    if reading.state != lastPlacement { print("placement: \(reading.state.rawValue)"); lastPlacement = reading.state }
+                    if reading.state == .settled { server.run(configuration: config, displayID: displayID) }
+                case .startRequested:
+                    if server.isPlacing { server.run(configuration: config, displayID: displayID) }
+                case .cancelRequested: print("cancelled from the overlay")
+                case .progress(let progress):
+                    if case .patch(let index, let count, let patch) = progress { print("  \(index + 1)/\(count) \(patch.name)") }
+                case .finished(let record, let saveError):
+                    print(record.consoleSummary)
+                    if let saveError { print("RECORD NOT SAVED: \(saveError)") }
+                    else { print("record: \(directory.appendingPathComponent(record.id.uuidString + ".json").path)") }
+                    print("reconnect the probe to run another session")
+                }
+            }
             server.start()
-            print("apply to display: \(apply ? "yes" : "no (use --apply)")")
-            print("press Ctrl-C to stop")
+            print("apply to display: \(apply ? "yes" : "no")")
+            // Handle Ctrl-C through the same async restoration path as cancellation.
+            let terminationSignals = [SIGINT, SIGTERM].map { number -> DispatchSourceSignal in
+                signal(number, SIG_IGN)
+                let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
+                source.setEventHandler { Task { @MainActor in await server.stop(); exit(0) } }
+                source.resume()
+                return source
+            }
+            defer { terminationSignals.forEach { $0.cancel() } }
             RunLoop.main.run()
         } catch {
             fail("serve failed: \(error)")
@@ -232,8 +305,9 @@ struct D65CLI {
         guard let subcommand = arguments.first else {
             fail("ddc expects probe, gain or writable")
         }
-        guard let display = DDCDisplay.external() else {
-            fail("no external display with a DCPAVServiceProxy found")
+        let selection = parseOptions(arguments)
+        guard let display = DDCDisplay.matching(displayID: selectedDisplayID(selection)) else {
+            fail("no unique DDC endpoint for the selected display; use display list and --display-id")
         }
 
         func describe(_ name: String, _ vcp: UInt8) -> String {

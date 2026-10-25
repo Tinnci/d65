@@ -1,0 +1,377 @@
+import D65Calibration
+import D65Core
+import D65MacRuntime
+import SwiftUI
+
+struct SessionView: View {
+    @ObservedObject var model: SessionModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            StepBar(current: model.step)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let notice = model.notice { Banner(tone: .warning, title: notice) }
+                    content
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+            Divider()
+            footer.padding(.horizontal, 16).padding(.vertical, 12)
+        }
+        .frame(width: 540)
+        .frame(minHeight: 440)
+        .background(Theme.surface)
+        .tint(Theme.accent)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch model.step {
+        case .prepare: PrepareStep(model: model)
+        case .connect: ConnectStep(model: model)
+        case .place: PlaceStep(model: model)
+        case .measure: MeasureStep(model: model)
+        case .review: ReviewStep(model: model)
+        }
+    }
+
+    @ViewBuilder private var footer: some View {
+        HStack(spacing: 8) {
+            switch model.step {
+            case .prepare:
+                Hint("Built-in displays are listed but not suggested")
+                Button("Cancel") { model.close() }.keyboardShortcut(.cancelAction)
+                Button("Continue") { model.continueFromPrepare() }
+                    .keyboardShortcut(.defaultAction).disabled(model.selected == nil)
+            case .connect:
+                Hint("Connects on its own when the app opens")
+                Button("Back") { model.back() }.keyboardShortcut(.cancelAction)
+            case .place:
+                Hint("Return starts now · Esc goes back")
+                Button("Back") { model.back() }.keyboardShortcut(.cancelAction)
+                Button("Start Now") { model.startNow() }.keyboardShortcut(.defaultAction)
+            case .measure:
+                Hint("Esc cancels and restores the display")
+                Button("Cancel") { model.back() }.keyboardShortcut(.cancelAction)
+            case .review:
+                if model.summary?.tone == .critical {
+                    Spacer()
+                    Button("Reset Display Colours") { model.agent.resetDisplayColours(); model.discard() }
+                        .keyboardShortcut(.defaultAction)
+                } else if model.summary?.canKeep == true {
+                    Hint("Hold Space to see the original")
+                    Button("Discard") { model.discard() }.keyboardShortcut(.cancelAction)
+                    Button("Keep Correction") { model.keep() }.keyboardShortcut(.defaultAction)
+                } else {
+                    Spacer()
+                    if model.summary?.canRetry == true { Button("Try Again") { model.tryAgain() } }
+                    Button("Done") { model.discard() }.keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .controlSize(.large)
+    }
+}
+
+// MARK: Steps
+
+private struct PrepareStep: View {
+    @ObservedObject var model: SessionModel
+    var body: some View {
+        Text("Calibrate a display").font(.title2.weight(.semibold))
+        Picker("Display", selection: $model.selectedID) {
+            ForEach(model.displays) { display in
+                Text("\(display.name) — \(display.width) × \(display.height) · \(Int(display.refreshRate.rounded())) Hz\(display.isBuiltin ? " · built-in" : "")")
+                    .tag(Optional(display.id))
+            }
+        }
+        .onChange(of: model.selectedID) { model.readMonitorSettings() }
+        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
+            GridRow {
+                Text("Monitor controls").foregroundStyle(.secondary)
+                Text(model.monitorSettings.isEmpty
+                     ? "Not readable over DDC — D65 can’t warn if contrast changes later"
+                     : model.monitorSettings.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+            }
+            GridRow { Text("Takes").foregroundStyle(.secondary); Text("About 40 seconds") }
+        }
+        .font(.callout).monospacedDigit()
+        VStack(alignment: .leading, spacing: 8) {
+            Guide("Dim the room. Strong ambient light makes the blue patch unmeasurable.")
+            Guide("Leave contrast and the picture preset as they are. D65 records them, and changing either later makes the correction stale.")
+            Guide("You’ll press the iPhone face-down against the screen, inside an outline. Its own screen goes dark while it measures.")
+        }
+        Toggle("Measure only, without correcting", isOn: $model.measureOnly)
+    }
+}
+
+private struct ConnectStep: View {
+    @ObservedObject var model: SessionModel
+    var body: some View {
+        Text("Open D65 Probe on your iPhone").font(.title2.weight(.semibold))
+        Text("Your Mac is advertising on the local network as “D65”. The iPhone connects as soon as the app is open.")
+            .foregroundStyle(.secondary)
+        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Waiting for the probe…") }
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let since = model.waitingSince, context.date.timeIntervalSince(since) > 15 {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Still looking. Check these on the iPhone:").font(.headline)
+                    Guide("D65 Probe is open and in the foreground.")
+                    Guide("Both devices are on the same Wi-Fi network.")
+                    Guide("Settings → Privacy & Security → Local Network allows D65 Probe.")
+                    Guide("If the app won’t open, its 7-day development signature has expired. Run it again from Xcode.")
+                }
+                .card()
+            }
+        }
+    }
+}
+
+private struct PlaceStep: View {
+    @ObservedObject var model: SessionModel
+    var body: some View {
+        Text("Place the phone on the outline").font(.title2.weight(.semibold))
+        Text("Press the front of the iPhone flat against \(model.selected?.name ?? "the display"), inside the outline, top edge up. Measuring starts when the readings settle.")
+            .foregroundStyle(.secondary)
+        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
+            GridRow { Text("Probe").foregroundStyle(.secondary); Text(model.probe.map { "\($0.model) · \($0.build)" } ?? "–") }
+            GridRow {
+                Text("Reading").foregroundStyle(.secondary)
+                Text(model.placement.luminance.map { String(format: "Y %.1f", $0) } ?? "No reading yet")
+            }
+        }
+        .font(.callout).monospacedDigit()
+        VStack(alignment: .leading, spacing: 6) {
+            ProgressView(value: model.placement.steadyFraction)
+                .tint(model.placement.state == .settled ? Theme.ok : .secondary)
+            Text(placementText).font(.callout).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+    private var placementText: String {
+        switch model.placement.state {
+        case .waiting: return "Waiting for the first reading"
+        case .tooDark: return "Too dark — the sensor, at the top edge, must sit inside the outline"
+        case .moving: return "Hold the phone still"
+        case .settling: return String(format: "Steady for %.1f of 1.5 s", model.placement.steadyFraction * 1.5)
+        case .settled: return "Steady — starting"
+        }
+    }
+}
+
+private struct MeasureStep: View {
+    @ObservedObject var model: SessionModel
+    var body: some View {
+        Text(title).font(.title2.weight(.semibold)).monospacedDigit()
+        PatchStrip(current: model.patchIndex)
+        if !model.passes.isEmpty || model.verifyingPass != nil {
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
+                GridRow { Text("Pass"); Text("White"); Text("ΔE00") }.foregroundStyle(.secondary)
+                ForEach(model.passes, id: \.number) { pass in
+                    GridRow {
+                        Text("\(pass.number)")
+                        Text(Format.cct(pass.measured.chromaticity?.correlatedColorTemperature()))
+                        Text(String(format: "%.2f", pass.deltaE))
+                    }
+                }
+                if let pass = model.verifyingPass {
+                    GridRow { Text("\(pass)"); HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("measuring white…") }; Text("") }
+                }
+            }
+            .font(.callout).monospacedDigit()
+            .card()
+        }
+        Text(model.patchIndex < model.patchCount
+             ? "About \(model.secondsRemaining) s left. Keep the phone still; readings taken while it moves are discarded."
+             : "Applying the correction and measuring white again.")
+            .font(.callout).foregroundStyle(.secondary)
+    }
+    private var title: String {
+        if let pass = model.verifyingPass { return "Correcting · pass \(pass) of up to 3" }
+        if model.patchIndex >= model.patchCount { return "Correcting" }
+        return "Measuring · \(model.patchIndex + 1) of \(model.patchCount) · \(model.phase)"
+    }
+}
+
+private struct ReviewStep: View {
+    @ObservedObject var model: SessionModel
+    @FocusState private var focused: Bool
+    var body: some View {
+        if let summary = model.summary, let record = model.record {
+            Banner(tone: summary.toneKind, title: summary.title,
+                   detail: summary.canKeep ? "Now showing on \(record.display.name). " + summary.detail : summary.detail)
+            if let saveError = model.saveError {
+                Banner(tone: .warning, title: "The session record couldn’t be saved", detail: saveError)
+            }
+            let trajectory = record.whiteTrajectory
+            if trajectory.count > 0, summary.tone != .critical {
+                HStack(alignment: .top, spacing: 14) {
+                    ChromaticityPlot(points: trajectory).frame(width: 220, height: 220)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Figure(label: "ΔE00 to D65", before: Format.deltaE(record.baselineDeltaE),
+                               after: record.bestGains?.isIdentity == false ? Format.deltaE(record.bestDeltaE) : nil)
+                        Figure(label: "White (approx.)", before: Format.cct(trajectory.first?.correlatedColorTemperature()),
+                               after: trajectory.count > 1 ? Format.cct(bestChromaticity(record)?.correlatedColorTemperature()) : nil)
+                        if let gains = record.bestGains, !gains.isIdentity {
+                            Figure(label: "Brightness", before: nil,
+                                   after: String(format: "%+.0f %%", (gains.luminanceScale - 1) * 100))
+                        }
+                        Text("Measured in this session with the phone in place. Absolute kelvin from this sensor is approximate.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let suggestion = summary.suggestion { Guide(suggestion) }
+            DisclosureGroup("Details") {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
+                    if let gains = record.bestGains {
+                        GridRow { Text("Gains").foregroundStyle(.secondary); Text(String(format: "R %.3f  G %.3f  B %.3f", gains.r, gains.g, gains.b)) }
+                    }
+                    GridRow { Text("Gamma (fitted)").foregroundStyle(.secondary); Text(String(format: "%.2f", record.gamma)) }
+                    GridRow { Text("Outcome").foregroundStyle(.secondary); Text("\(record.outcome.rawValue) — \(record.terminationReason)") }
+                    GridRow { Text("Metric").foregroundStyle(.secondary); Text(record.whiteErrorMetric) }
+                    GridRow {
+                        Text("Record").foregroundStyle(.secondary)
+                        Button(record.id.uuidString.prefix(8) + "….json") {
+                            NSWorkspace.shared.activateFileViewerSelecting([model.agent.recordDirectory.appendingPathComponent(record.id.uuidString + ".json")])
+                        }.buttonStyle(.link)
+                    }
+                }
+                .font(.caption).monospacedDigit().textSelection(.enabled).padding(.top, 4)
+            }
+            .font(.callout)
+            Color.clear.frame(height: 0)
+                .focusable().focused($focused).focusEffectDisabled()
+                .onAppear { focused = summary.canKeep }
+                .onKeyPress(.space, phases: [.down, .up]) { press in
+                    guard summary.canKeep else { return .ignored }
+                    model.comparing = press.phase == .down
+                    return .handled
+                }
+        }
+    }
+    private func bestChromaticity(_ record: ExperimentRecord) -> Chromaticity? {
+        record.passes.min { $0.deltaE < $1.deltaE }?.measured.chromaticity
+    }
+}
+
+// MARK: Components
+
+private struct StepBar: View {
+    let current: SessionModel.Step
+    var body: some View {
+        HStack(spacing: 14) {
+            ForEach(SessionModel.Step.allCases, id: \.rawValue) { step in
+                HStack(spacing: 5) {
+                    ZStack {
+                        Circle().fill(step.rawValue <= current.rawValue ? Color.primary.opacity(step == current ? 1 : 0.45) : .clear)
+                        Circle().strokeBorder(step.rawValue <= current.rawValue ? Color.clear : Theme.rule)
+                        if step.rawValue < current.rawValue { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.surface) }
+                        else { Text("\(step.rawValue + 1)").font(.system(size: 9, weight: .semibold)).foregroundStyle(step == current ? Theme.surface : .secondary) }
+                    }
+                    .frame(width: 16, height: 16)
+                    Text(step.title).font(.caption.weight(step == current ? .semibold : .regular))
+                        .foregroundStyle(step == current ? .primary : .secondary)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(current.rawValue + 1) of 5, \(current.title)")
+    }
+}
+
+struct PatchStrip: View {
+    let current: Int
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(CalibrationPatch.sequence.enumerated()), id: \.offset) { index, patch in
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(index < current ? Color(.sRGB, red: patch.red, green: patch.green, blue: patch.blue) : Color.clear)
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(index == current ? Color.primary : Theme.rule,
+                                                                            lineWidth: index == current ? 2 : 1))
+                    .aspectRatio(1, contentMode: .fit)
+                    .help(patch.name)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct Banner: View {
+    let tone: ToneKind
+    let title: String
+    var detail: String? = nil
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: icon).foregroundStyle(Theme.tone(tone))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline).foregroundStyle(Theme.tone(tone))
+                if let detail { Text(detail).font(.callout).fixedSize(horizontal: false, vertical: true) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(Theme.tone(tone).opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+    }
+    private var icon: String {
+        switch tone {
+        case .success: "checkmark.circle.fill"
+        case .partial: "circle.lefthalf.filled"
+        case .info: "info.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .critical: "exclamationmark.octagon.fill"
+        }
+    }
+}
+
+private struct Figure: View {
+    let label: String
+    let before: String?
+    let after: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                if let before { Text(after == nil ? before : before + " →").foregroundStyle(after == nil ? .primary : .secondary) }
+                if let after { Text(after) }
+            }
+            .font(.title3.weight(.semibold)).monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+}
+
+struct Guide: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle().fill(.secondary).frame(width: 5, height: 5).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+            Text(text).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct Hint: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View { Text(text).font(.caption).foregroundStyle(.secondary); Spacer() }
+}
+
+extension SessionSummary {
+    var toneKind: ToneKind {
+        switch tone {
+        case .success: .success
+        case .partial: .partial
+        case .info: .info
+        case .warning: .warning
+        case .critical: .critical
+        }
+    }
+}

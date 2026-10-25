@@ -22,19 +22,33 @@ targets:
       - package: D65
         product: D65Display
       - package: D65
+        product: D65Calibration
+      - package: D65
+        product: D65MacRuntime
+      - package: D65
         product: D65Link
     info:
       path: Apps/D65Mac/Info.plist
       properties:
         CFBundleDisplayName: D65
+        D65SoftwareRevision: unknown
         CFBundleShortVersionString: "0.1.0"
         LSApplicationCategoryType: public.app-category.utilities
+        LSUIElement: true
         NSLocalNetworkUsageDescription: D65 finds your iPhone probe on the local network.
         NSBonjourServices:
           - _d65._tcp
+    postBuildScripts:
+      - name: Stamp source revision
+        script: sh "$SRCROOT/scripts/stamp-revision.sh"
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"
     settings:
       base:
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: dev.tinnci.d65
+        SWIFT_VERSION: "5.0"
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
 
@@ -43,6 +57,15 @@ targets:
     platform: iOS
     sources:
       - path: Apps/D65Probe
+      # Private ALS reader: present only in a local checkout (local/ is git-ignored).
+      - path: local/als-probe/ALSProbe/Experiment.swift
+        optional: true
+      - path: local/als-probe/ALSProbe/IOHIDShim.swift
+        optional: true
+      - path: local/als-probe/ALSProbe/MotionGate.swift
+        optional: true
+      - path: local/als-probe/D65LocalSensor.swift
+        optional: true
     dependencies:
       - package: D65
         product: D65Core
@@ -57,10 +80,15 @@ targets:
         CFBundleShortVersionString: "0.1.0"
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: D65 Probe sends measurements to the Mac on your local network.
+        NSMotionUsageDescription: D65 Probe checks that the phone is still while it measures.
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
         NSBonjourServices:
           - _d65._tcp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tinnci.d65.probe
+        SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic

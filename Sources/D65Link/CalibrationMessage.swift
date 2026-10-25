@@ -6,6 +6,12 @@ import Foundation
 public enum CalibrationMessage: Codable, Hashable, Sendable {
     /// Probe → Mac. Identifies the sensor so the Mac can pick a calibration.
     case hello(deviceModel: String, build: String)
+    /// Versioned handshake required by the isolated-session protocol.
+    case helloV2(deviceModel: String, build: String, protocolVersion: Int)
+    case measurementRequest(MeasurementRequest)
+    case taggedSample(sessionID: UUID, patchID: UUID, sample: MeasurementSample)
+    case measurementEnd(sessionID: UUID, patchID: UUID)
+    case sessionEnded(sessionID: UUID)
     /// Probe → Mac. Per-module sensor calibration exported by the probe.
     case sensorCalibration(channels: [Double], wavelengths: [Double])
     /// Mac → Probe. Display is showing the reference patch; start sampling.
@@ -19,6 +25,18 @@ public enum CalibrationMessage: Codable, Hashable, Sendable {
     /// Mac → Probe. Final outcome, including what was applied.
     case result(gains: RGBGains, preDeltaE: Double, postDeltaE: Double, verdict: CalibrationVerdict)
     case failure(code: Int, message: String)
+    /// Mac → Probe (v3). The display shows the placement target; stream preview readings until it ends.
+    case placementRequest(sessionID: UUID)
+    case placementEnd(sessionID: UUID)
+    /// Probe → Mac (v3). A live reading while the phone is being placed; `stable` is the probe's motion gate.
+    case previewSample(sessionID: UUID, sample: MeasurementSample, stable: Bool)
+}
+
+/// Failure codes the probe can turn into plain language.
+public enum LinkFailure: Int, Sendable {
+    case session = 1
+    case incompatible = 2
+    case busy = 3
 }
 
 public enum FramingError: Error, Equatable {
@@ -79,5 +97,6 @@ public enum MessageFraming {
 public enum Link {
     /// Bonjour service type advertised by the Mac and browsed by the probe.
     public static let serviceType = "_d65._tcp"
-    public static let protocolVersion = 1
+    /// v3 adds the placement handshake and keeps the connection open across sessions.
+    public static let protocolVersion = 3
 }

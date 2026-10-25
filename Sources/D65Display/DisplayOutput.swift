@@ -60,3 +60,23 @@ public struct NullDisplayOutput: DisplayOutput {
     public func apply(_ gains: RGBGains) throws {}
     public func reset() throws {}
 }
+
+public struct DDCValue: Sendable, Equatable {
+    public let current: UInt16
+    public let maximum: UInt16
+    public init(current: UInt16, maximum: UInt16) { self.current = current; self.maximum = maximum }
+}
+
+
+/// A snapshot of a display's current transfer tables.
+public struct DisplayTransferSnapshot: Sendable {
+    public let displayID: UInt32
+    public let red: [Double]
+    public let green: [Double]
+    public let blue: [Double]
+
+    public init(displayID: UInt32, red: [Double], green: [Double], blue: [Double]) {
+        self.displayID = displayID; self.red = red; self.green = green; self.blue = blue
+    }
+    public var count: Int { red.count }
+}

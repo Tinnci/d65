@@ -1,116 +1,117 @@
 # Architecture
 
-D65 is a modular monolith: one repository, one Swift package, four libraries with a strict
-dependency direction. Nothing here may import the apps, and the apps may not contain colour maths.
+D65 remains a modular monolith. The colour maths is independent of I/O; one calibration engine
+owns the workflow used by the CLI and Mac app. Platform and transport adapters supply its inputs.
 
-```
-D65Core        ← pure maths, zero I/O, zero UI
-  ↑
-D65Measurement ← samples, normalisation
-  ↑
-D65Link        ← protocol + framing (depends on Core, Measurement)
-D65Display     ← output adapters (depends on Core only)
-  ↑
-Apps/D65Mac, Apps/D65Probe
-```
+## Dependency boundaries
 
-## Modules
+| Target | Responsibility | Dependencies |
+|---|---|---|
+| D65Core | XYZ/Lab/ΔE, solver, resolved gains, quality gate | Foundation |
+| D65Measurement | samples, tagged measurement windows, validation and statistics | Core |
+| D65Display | transfer-table transactions, mode keys, macOS gamma and DDC transport | Core |
+| D65Calibration | session lifecycle, correction passes, effect tests, experiment records | Core, Measurement, Display |
+| D65Link | versioned messages and bounded length-prefixed JSON framing | Core, Measurement |
+| D65MacRuntime | selected display, patch window, network probe and service | Calibration, Link, Display |
+| d65 / D65Mac | command/UI configuration and presentation of results | libraries above |
 
-### D65Core
+The private ALS acquisition experiment remains in the ignored `local/als-probe` directory. Its
+network client is shared from `Apps/D65Probe/LinkClient.swift`; the checked-in probe app is still a
+sensor-free shell. The probe never solves a correction.
 
-The only place that knows about colour.
+## Session ownership
 
-- `XYZ`, `Chromaticity` — tristimulus and xy, with xyY conversion and a McCamy CCT approximation.
-- `Lab`, `ColorDifference.deltaE00` — CIEDE2000, validated against the Sharma reference pairs.
-- `Matrix3x3`, `DisplayPrimaries` — RGB↔XYZ for sRGB / Display P3, derived from primaries rather
-  than hard-coded.
-- `WhitePointSolver` — converts a measured white into per-channel gains, in linear RGB space:
-  `gains = (M⁻¹·target) / (M⁻¹·measured)`, then attenuated so the brightest channel is 1.
-- `RGBGains` — the correction itself: three gains plus a blend factor, with the column-major 4×4
-  diagonal matrix a render-server colour matrix expects.
-- `QualityGate` — the accept/reject thresholds (2.5 / 5.0 ΔE00, 20 % luminance loss).
+`CalibrationEngine` is main-actor isolated, with injected `CalibrationProbe`, `CalibrationDisplay`,
+`PatchPresenter`, `CalibrationClock`, and `ExperimentRecorder` boundaries. No library imports AppKit
+except the macOS adapters. Network callbacks enter the main actor before changing session data.
 
-### D65Measurement
+The lifecycle records `idle → measuring → applying/verifying → restoring → finished`. A run has
+one cleanup path for success, rejection, cancellation, failed writes, missing samples, and errors.
+Concurrent runs are rejected. Best-pass state belongs to a single run.
 
-- `MeasurementSample` — XYZ, lux, raw channels, optional reported CCT, timestamp, device.
-- `MeasurementNormalizer` — plausibility filtering plus a median-centred robust mean, so one bad
-  frame cannot move the result.
+Outcomes distinguish measurement-only completion, an already acceptable white, convergence,
+quality-gate rejection, stopped improvement, exhausted passes, cancellation, and failure. Reaching
+the pass limit does not count as convergence. Sessions are temporary: their correction is restored
+at the end, and the record identifies the best measured pass for review.
 
-### D65Link
+The network host grants one connection a lease. A second connection cannot change the active
+probe, inject samples, or take over while the first session is restoring. Disconnects cancel the
+engine. Malformed frames terminate the connection; idle handshakes time out.
 
-- `CalibrationMessage` — the entire wire protocol as a `Codable` enum.
-- `MessageFraming` — 4-byte big-endian length prefix, JSON payload, partial-frame draining.
+## Correction and restoration contracts
 
-### D65Display
+`RGBGains` contains effective linear-light channel gains only. `CorrectionRequest` contains a
+requested alpha and resolves it once. Prediction, hardware application and experiment records all
+use the resolved values. Residual solves are multiplied into cumulative gains by the engine.
 
-- `DisplayOutput` — the only abstraction the UI sees: `apply(gains)` / `reset()`.
-- `DisplayModeKey` — the mode attributes a calibration is valid for (resolution, refresh rate,
-  dynamic range, chroma), with a stable persistence key.
-- `NullDisplayOutput` — for tests and previews.
+`TransferTableTransaction` captures the exact starting tables once. `setCumulativeGains` always
+scales that baseline using `gain^(1/gamma)`; applying the same correction twice is idempotent.
+Restoration writes the captured tables to that display only, preserving pre-existing curves. A
+read-only session does not write gamma tables. Failed writes are considered potentially partial
+and still trigger restoration. A failed restoration remains visible and can be retried.
 
-## Output adapter (macOS)
+The low-level `MacDisplayOutput.apply` is explicitly residual relative to the current table; the
+workflow does not call it. The standalone `display reset` command intentionally restores global
+ColorSync defaults and is not the session cleanup mechanism.
 
-`MacDisplayOutput` scales the display's existing transfer table with
-`CGSetDisplayTransferByTable`, reads it back with `CGGetDisplayTransferByTable`, and restores with
-`CGDisplayRestoreColorSyncSettings()`. All public API.
+DDC restoration is separate. A test always attempts the original control value after a failed
+write or measurement. Successful tests verify both luminance and xy after restoring. Brightness
+can use a bounded measured binary search when the original readback does not reproduce the
+baseline (assuming a monotonic 0…100 brightness response). Failure to measure or reproduce the
+baseline is recorded as unverified restoration; the session stops instead of claiming success.
+A disconnected sensor cannot prove restoration. Process termination by SIGKILL cannot run cleanup.
 
-Two properties matter:
+## Display selection and validity
 
-- It multiplies the **encoded** table, not linear light. That keeps the display's existing
-  calibration curve intact and makes identity gains an exact no-op; a colorimetrically pure version
-  would decode, scale, and re-encode, and would also need to know the panel's actual gamma.
-- **macOS reverts the table when the process that set it exits.** Verified on this machine: while
-  the setter is alive, another process reads the scaled table; once it exits, the original table is
-  back. So `d65 display apply` needs `--hold`, and the shipping app has to be a persistent agent
-  (menu bar) rather than a fire-and-forget command.
+`SelectedDisplay` binds one `CGDirectDisplayID`, stable display UUID, `NSScreen`, transfer-table
+transaction and DDC endpoint. The patch window uses that screen, with explicit sRGB colours.
+DDC endpoints are matched by checksum-valid EDID vendor/product/serial. Missing or ambiguous matches
+disable DDC; there is no first-external-display fallback.
 
-### DDC/CI (external monitors)
+The persisted `DisplayContext` includes UUID, screen name, current pixel dimensions/refresh rate,
+and available brightness, contrast, preset and input readbacks. Readbacks are diagnostic state,
+not evidence of optical effect. The mode is checked before/after measurements and before writes;
+a changed/disconnected display aborts the run. Restoring a table captured in another mode is
+refused and reported. HDR/chroma/range remain unknown unless supplied as a `DisplayModeKey`.
+Records with incomplete mode information must not become automatic calibration-cache entries.
+There is no automatic replay or calibration cache yet.
 
-`DDCDisplay` speaks DDC/CI over `IOAVService`, ported from MonitorControl's `Arm64DDC` (MIT):
-same packet layout, XOR checksum, retries and sleeps, minus the display-matching heuristics.
+## Measurement boundary
 
-On this panel (HAN K27, USB-C) reads are stable and writes are ignored — the monitor acknowledges
-the I2C write but the value never changes, which is common. So DDC is an **inspection** path today,
-not an output path:
+Protocol v2 issues a `MeasurementRequest` with session ID, unique patch ID, settling time and
+sampling duration. Samples echo both IDs. The host rejects stale/foreign tags and caps buffered
+samples. The collector uses receiver-local arrival time, avoiding a phone/Mac clock-sync requirement.
+It excludes settling samples, invalid/nonfinite/negative readings, luminance and chromaticity
+outliers, and requires a configurable minimum count. Black samples may be zero.
 
-```
-luminance 0/100   contrast 50/100   R 49   G 46   B 42
-```
+Every accepted patch records its samples, mean, standard error and rejection count. Every attempt
+also retains received tagged samples and any failure. Black supplies ambient subtraction; the grey
+ramp fits gamma with at least three usable levels. The ALS's absolute colour accuracy remains
+unvalidated, and the solver currently uses sRGB primaries.
 
-That read is still useful: it tells us the monitor is already configured warm-ish, which directly
-contradicts the probe's white-patch reading of ~10,800 K and strengthens the suspicion that the
-ALS channel triple is not colorimetric.
+New white-point ΔE00 values compare stimuli normalized to Y=1. This prevents probe distance or
+exposure from changing a chromaticity error. They are not directly comparable to the historical
+absolute-Y values in `experiments.md`. Actual/predicted luminance loss is checked separately against
+the session baseline.
 
-ICC output is a separate adapter by design: a profile only affects colour-managed apps, while the
-gamma table affects everything on the display. They are not interchangeable, and the code should
-never silently substitute one for the other.
+## Records and verification
 
-## Data flow
+`ExperimentRecord` is versioned and contains configuration, software revision, display/probe
+identities, raw attempts, patch statistics, fitted gamma, cumulative passes, control effects, state
+history, termination reason and restoration errors. `JSONExperimentRecorder` writes one atomic
+JSON file per session. Console summaries are derived from this record, including failed sessions.
+Storage failure is surfaced to the caller rather than reported as a saved experiment.
 
-```
-probe samples ──▶ MeasurementNormalizer ──▶ WhitePointSolver ──▶ QualityGate
-                                                                     │
-                                                          accepted?  ▼
-                                                              DisplayOutput
-```
+The CLI obtains `git describe --always --dirty`; the Mac app build stamps the same revision into
+its bundle. CLI artifacts live in `local/experiments`; app artifacts live in
+`~/Library/Application Support/D65/Experiments`.
 
-The probe never computes a correction. The Mac never talks to a sensor directly. That split is
-deliberate: it mirrors the reference implementation, and it lets the sensor be swapped without
-touching the maths.
+Deterministic tests inject probes, displays, clocks and presenters. They cover missing samples,
+disconnects, cancellation, failed/partial writes, exact restoration, consecutive and concurrent
+sessions, brightness restoration, foreign sample tags, connection admission, DDC read failures and
+record round trips. Actual sensor accuracy and physical effects still require hardware experiments.
 
 ## Non-goals
 
-- Gamut or transfer-function correction. A diagonal gain matrix cannot do it, and pretending
-  otherwise would repeat the overclaim the reference implementation's name invites.
-- An ICC profile pipeline. It is a possible future adapter, not the first one.
-- Hardware calibration. If you need a measured profile, use ArgyllCMS/DisplayCAL and a colorimeter.
-
-## Status of the adapters
-
-| Piece | State |
-|---|---|
-| Core maths, tests, CLI | working |
-| Link framing | working |
-| Probe acquisition | not implemented (needs an ALS source) |
-| macOS output adapter | not implemented (render-server matrix or ColorSync) |
-| Calibration persistence | not implemented (`DisplayModeKey` is the key format) |
+No distributed services, ICC profiling, gamut correction, automatic replay, or reference-colorimeter
+accuracy claims. Persistent correction ownership and crash recovery remain future app work.

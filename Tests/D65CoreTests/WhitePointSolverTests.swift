@@ -43,6 +43,17 @@ final class WhitePointSolverTests: XCTestCase {
         XCTAssertEqual(half.b, 1.0, accuracy: 1e-12)
     }
 
+    func testCorrectionRequestResolvesAlphaOnce() throws {
+        let request = CorrectionRequest(gains: RGBGains(r: 0.8, g: 0.9, b: 1), alpha: 0.5)
+        let effective = request.resolved()
+        XCTAssertEqual(effective.r, 0.9, accuracy: 1e-12)
+        // Effective gains serialize without a pending alpha, and output consumes them directly.
+        let data = try JSONEncoder().encode(effective)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("alpha"))
+        let decoded = try JSONDecoder().decode(RGBGains.self, from: data)
+        XCTAssertEqual(decoded, effective)
+    }
+
     func testDiagonalMatrixLayout() {
         let matrix = RGBGains(r: 0.5, g: 0.75, b: 1).diagonalMatrix
         XCTAssertEqual(matrix.count, 16)
