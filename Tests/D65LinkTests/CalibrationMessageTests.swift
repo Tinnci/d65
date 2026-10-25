@@ -1,4 +1,6 @@
+import D65Core
 import D65Link
+import D65Measurement
 import XCTest
 
 final class CalibrationMessageTests: XCTestCase {
