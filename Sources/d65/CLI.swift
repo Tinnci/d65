@@ -26,6 +26,8 @@ struct D65CLI {
             runDisplay(arguments)
         case "serve":
             runServe(arguments)
+        case "ddc":
+            runDDC(arguments)
         case "-h", "--help", "help":
             printUsage()
         default:
@@ -65,6 +67,12 @@ struct D65CLI {
 
               d65 serve [--port <p>] [--apply]
                   Advertise _d65._tcp and solve gains from probe measurements.
+
+              d65 ddc probe
+                  Read brightness, contrast, RGB gain and input over DDC/CI.
+
+              d65 ddc gain --r <n> --g <n> --b <n>
+                  Write RGB gain (VCP 0x16/0x18/0x1A) and verify the read-back.
             """
         )
     }
@@ -209,6 +217,59 @@ struct D65CLI {
         }
         #else
         fail("serve is macOS only")
+        #endif
+    }
+
+    static func runDDC(_ arguments: [String]) {
+        #if os(macOS)
+        guard let subcommand = arguments.first else {
+            fail("ddc expects probe or gain")
+        }
+        guard let display = DDCDisplay.external() else {
+            fail("no external display with a DCPAVServiceProxy found")
+        }
+
+        func describe(_ name: String, _ vcp: UInt8) -> String {
+            guard let value = display.read(vcp) else { return name + ": no reply" }
+            return String(format: "%@: %d / %d", name, value.current, value.maximum)
+        }
+
+        switch subcommand {
+        case "probe":
+            print(describe("luminance ", DDCDisplay.luminance))
+            print(describe("contrast  ", DDCDisplay.contrast))
+            print(describe("red gain  ", DDCDisplay.redGain))
+            print(describe("green gain", DDCDisplay.greenGain))
+            print(describe("blue gain ", DDCDisplay.blueGain))
+            print(describe("input     ", DDCDisplay.inputSource))
+
+        case "gain":
+            let options = parseOptions(arguments)
+            let channels: [(String, UInt8, Double?)] = [
+                ("red", DDCDisplay.redGain, options["r"]),
+                ("green", DDCDisplay.greenGain, options["g"]),
+                ("blue", DDCDisplay.blueGain, options["b"]),
+            ]
+            for (name, vcp, requested) in channels {
+                guard let requested else { continue }
+                let value = UInt16(max(0, min(100, requested.rounded())))
+                let before = display.read(vcp)?.current
+                let acknowledged = display.write(vcp, value: value)
+                usleep(250_000)
+                let after = display.read(vcp)?.current
+                let beforeText = before.map(String.init) ?? "nil"
+                let afterText = after.map(String.init) ?? "nil"
+                print("\(name) \(beforeText) -> \(value)  ack=\(acknowledged ? "yes" : "no")  readback=\(afterText)")
+                if after != value {
+                    print("  note: the monitor did not accept the write (common; many panels are read-only)")
+                }
+            }
+
+        default:
+            fail("unknown ddc subcommand: \(subcommand)")
+        }
+        #else
+        fail("ddc commands are macOS only")
         #endif
     }
 

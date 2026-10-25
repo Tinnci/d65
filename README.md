@@ -32,6 +32,7 @@ swift run d65 display probe                                  # read-only
 swift run d65 display apply --r 0.97 --g 0.95 --b 1.0 --hold 10
 swift run d65 display reset
 swift run d65 serve            # advertise _d65._tcp, solve gains from a probe
+swift run d65 ddc probe        # read the monitor's hardware RGB gain over DDC/CI
 ```
 
 `--hold` matters: macOS restores the gamma table as soon as the process that set it exits, so an
@@ -108,6 +109,7 @@ applied as per-channel gains through the render server. The full write-up — co
 - [ ] Menu-bar agent that holds the correction across process lifetime
 - [ ] Per-display-mode persistence and restore after crash
 - [ ] Calibrate the probe's channel triple against a reference before trusting it as XYZ
+- [x] DDC/CI read path for monitor hardware gains (writes are ignored by this panel)
 - [ ] Probe acquisition: external sensor (supported) or sideloaded IOHID ALS (experimental, see docs/research/als-iohid.md)
 - [ ] End-to-end session over `D65Link` (Bonjour + framing)
 - [ ] Calibration store keyed by `DisplayModeKey`, with the `QualityGate` verdict recorded

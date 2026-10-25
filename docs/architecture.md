@@ -64,6 +64,23 @@ Two properties matter:
   back. So `d65 display apply` needs `--hold`, and the shipping app has to be a persistent agent
   (menu bar) rather than a fire-and-forget command.
 
+### DDC/CI (external monitors)
+
+`DDCDisplay` speaks DDC/CI over `IOAVService`, ported from MonitorControl's `Arm64DDC` (MIT):
+same packet layout, XOR checksum, retries and sleeps, minus the display-matching heuristics.
+
+On this panel (HAN K27, USB-C) reads are stable and writes are ignored — the monitor acknowledges
+the I2C write but the value never changes, which is common. So DDC is an **inspection** path today,
+not an output path:
+
+```
+luminance 0/100   contrast 50/100   R 49   G 46   B 42
+```
+
+That read is still useful: it tells us the monitor is already configured warm-ish, which directly
+contradicts the probe's white-patch reading of ~10,800 K and strengthens the suspicion that the
+ALS channel triple is not colorimetric.
+
 ICC output is a separate adapter by design: a profile only affects colour-managed apps, while the
 gamma table affects everything on the display. They are not interchangeable, and the code should
 never silently substitute one for the other.
