@@ -1,16 +1,7 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/icon-dark.png">
-    <img src="docs/images/icon-light.png" width="240" height="240" alt="D65 icon: a ring holding a dot, set on a short arc of the Planckian locus that runs from cool blue to warm orange">
-  </picture>
-</p>
-
-<h1 align="center">D65</h1>
-
-<p align="center">
-  <b>White-point balance for external displays, measured with an iPhone.</b><br>
-  <sub>The ring holds the white point on D65; behind it runs the Planckian locus, cool to warm.</sub>
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/banner-dark.png">
+  <img src="docs/images/banner-light.png" width="100%" alt="D65: White-point balance for external displays, measured with an iPhone. The ring-and-dot mark sits on an arc of the Planckian locus that runs from cool blue to warm orange across the banner.">
+</picture>
 
 <p align="center">
   <a href="https://github.com/Tinnci/d65/actions/workflows/ci.yml"><img src="https://github.com/Tinnci/d65/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -59,6 +50,14 @@ white, and says so.
 The figures are generated from the recorded sessions by `python3 scripts/make-figures.py`.
 
 ## The Mac app
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/icon-dark.png">
+  <img align="right" src="docs/images/icon-light.png" width="104" height="104" alt="D65 app icon">
+</picture>
+
+A menu-bar agent with a five-step calibration window. The icon's ring holds the white point on D65;
+behind it runs the Planckian locus, cool to warm.
 
 <table>
   <tr>

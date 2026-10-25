@@ -1,10 +1,12 @@
-// Renders D65's app icons and colour assets into both asset catalogs.
+// Renders D65's app icons and colour assets into both asset catalogs, plus the README icon,
+// banner (light and dark) and GitHub social preview in docs/images.
 //
 //   swift scripts/make-icons.swift
 //
 // The mark is the product's ring-and-dot glyph: a held white point. Behind it runs a short arc of
 // the Planckian locus, cool at the lower left and warm at the upper right, passing through the dot
 // where it turns neutral. Surfaces are equal-RGB greys, as in the apps.
+import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -76,6 +78,23 @@ func render(size: Int, palette: Palette, shape: Shape) -> CGImage {
     let control = CGPoint(x: 2 * centre.x - (start.x + end.x) / 2, y: 2 * centre.y - (start.y + end.y) / 2)
     let arc = CGMutablePath()
     arc.move(to: start); arc.addQuadCurve(to: end, control: control)
+    drawMark(ctx, centre: centre, k: k, arc: arc, from: start, to: end, bounds: body, palette: palette, space: space)
+    ctx.restoreGState()
+
+    // A hairline edge keeps the light macOS tile from dissolving into a light Dock.
+    if shape == .macOS {
+        // The dark tile gets a light edge so it doesn't dissolve into a dark page.
+        let edge: CGColor = palette.ink.r > 0.5 ? color(palette.ink, 0.14) : color((0, 0, 0), 0.10)
+        ctx.addPath(clip); ctx.setStrokeColor(edge); ctx.setLineWidth(2); ctx.strokePath()
+    }
+    return ctx.makeImage()!
+}
+
+/// The ring, the held dot, and a locus arc passing behind them with gaps around both.
+/// Shared by the icons and the banner so the mark is drawn one way only.
+func drawMark(_ ctx: CGContext, centre: CGPoint, k: CGFloat, arc: CGPath, from start: CGPoint, to end: CGPoint,
+              bounds body: CGRect, palette: Palette, space: CGColorSpace, neutralAt: CGFloat = 0.5) {
+    func color(_ c: RGB, _ a: CGFloat = 1) -> CGColor { CGColor(colorSpace: space, components: [c.r, c.g, c.b, a])! }
     // Gaps around the ring and the dot put the locus behind the mark, with the dot sitting on it.
     let ringRadius = 292 * k, ringWidth = 60 * k, dot = 104 * k, gap = 22 * k
     ctx.saveGState()
@@ -91,7 +110,7 @@ func render(size: Int, palette: Palette, shape: Shape) -> CGImage {
     ctx.setLineWidth(26 * k); ctx.setLineCap(.round)
     ctx.replacePathWithStrokedPath(); ctx.clip()
     let locus = CGGradient(colorsSpace: space, colors: [color(palette.cool), color(palette.neutral), color(palette.warm)] as CFArray,
-                           locations: [0, 0.5, 1])!
+                           locations: [0, neutralAt, 1])!
     // Extend past the ends so the round caps take the end colours instead of being cut flat.
     ctx.drawLinearGradient(locus, start: start, end: end, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
     ctx.restoreGState()
@@ -101,15 +120,6 @@ func render(size: Int, palette: Palette, shape: Shape) -> CGImage {
     ctx.strokeEllipse(in: CGRect(x: centre.x - ringRadius, y: centre.y - ringRadius, width: ringRadius * 2, height: ringRadius * 2))
     ctx.setFillColor(color(palette.ink))
     ctx.fillEllipse(in: CGRect(x: centre.x - dot, y: centre.y - dot, width: dot * 2, height: dot * 2))
-    ctx.restoreGState()
-
-    // A hairline edge keeps the light macOS tile from dissolving into a light Dock.
-    if shape == .macOS {
-        // The dark tile gets a light edge so it doesn't dissolve into a dark page.
-        let edge: CGColor = palette.ink.r > 0.5 ? color(palette.ink, 0.14) : color((0, 0, 0), 0.10)
-        ctx.addPath(clip); ctx.setStrokeColor(edge); ctx.setLineWidth(2); ctx.strokePath()
-    }
-    return ctx.makeImage()!
 }
 
 func write(_ image: CGImage, to url: URL) {
@@ -187,6 +197,92 @@ let readmeImages = root.appendingPathComponent("docs/images")
 try! FileManager.default.createDirectory(at: readmeImages, withIntermediateDirectories: true)
 write(render(size: 512, palette: .light, shape: .macOS), to: readmeImages.appendingPathComponent("icon-light.png"))
 write(render(size: 512, palette: .dark, shape: .macOS), to: readmeImages.appendingPathComponent("icon-dark.png"))
+
+
+/// A wide lockup: the mark on the left, the locus arc continuing across the whole banner like a
+/// horizon, and the wordmark with its tagline beneath the arc. Drawn at 2× in points.
+struct BannerLayout {
+    var size: CGSize
+    var markCentre: CGPoint
+    var k: CGFloat
+    /// The arc passes through these points (Catmull-Rom); one of them is the mark's centre.
+    var arcPoints: [CGPoint]
+    var wordmarkOrigin: CGPoint
+    var wordmarkSize: CGFloat
+    var taglineLines: [String]
+    var taglineSize: CGFloat
+    var radius: CGFloat
+}
+
+func banner(_ layout: BannerLayout, palette: Palette) -> CGImage {
+    let scale: CGFloat = 2
+    let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    let ctx = CGContext(data: nil, width: Int(layout.size.width * scale), height: Int(layout.size.height * scale),
+                        bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.scaleBy(x: scale, y: scale)
+    func color(_ c: RGB, _ a: CGFloat = 1) -> CGColor { CGColor(colorSpace: space, components: [c.r, c.g, c.b, a])! }
+    let body = CGRect(origin: .zero, size: layout.size)
+    let clip = CGPath(roundedRect: body.insetBy(dx: 1, dy: 1), cornerWidth: layout.radius, cornerHeight: layout.radius, transform: nil)
+    ctx.saveGState()
+    ctx.addPath(clip); ctx.clip()
+    let background = CGGradient(colorsSpace: space, colors: [color(palette.backgroundTop), color(palette.backgroundBottom)] as CFArray,
+                                locations: [0, 1])!
+    ctx.drawLinearGradient(background, start: CGPoint(x: 0, y: body.maxY), end: CGPoint(x: 0, y: body.minY), options: [])
+
+    // Catmull-Rom through the arc points, as cubic segments.
+    let pts = layout.arcPoints
+    let arc = CGMutablePath()
+    arc.move(to: pts[0])
+    for i in 0..<(pts.count - 1) {
+        let p0 = pts[max(i - 1, 0)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[min(i + 2, pts.count - 1)]
+        arc.addCurve(to: p2, control1: CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6),
+                     control2: CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6))
+    }
+    let start = pts.first!, end = pts.last!
+    let neutralAt = (layout.markCentre.x - start.x) / (end.x - start.x)
+    drawMark(ctx, centre: layout.markCentre, k: layout.k, arc: arc, from: start, to: end, bounds: body,
+             palette: palette, space: space, neutralAt: neutralAt)
+
+    // Wordmark and tagline, in the system face.
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+    let ink = NSColor(srgbRed: palette.ink.r, green: palette.ink.g, blue: palette.ink.b, alpha: 1)
+    let word = NSAttributedString(string: "D65", attributes: [
+        .font: NSFont.systemFont(ofSize: layout.wordmarkSize, weight: .heavy),
+        .foregroundColor: ink, .kern: -layout.wordmarkSize * 0.02])
+    word.draw(at: layout.wordmarkOrigin)
+    var y = layout.wordmarkOrigin.y - layout.taglineSize * 1.15
+    for line in layout.taglineLines {
+        NSAttributedString(string: line, attributes: [
+            .font: NSFont.systemFont(ofSize: layout.taglineSize, weight: .medium),
+            .foregroundColor: ink.withAlphaComponent(0.62)]).draw(at: CGPoint(x: layout.wordmarkOrigin.x + 4, y: y))
+        y -= layout.taglineSize * 1.35
+    }
+    NSGraphicsContext.restoreGraphicsState()
+    ctx.restoreGState()
+
+    // Rounded banners get the tiles' hairline edge; the square social preview is cropped by GitHub.
+    if layout.radius > 0 {
+        let edge: CGColor = palette.ink.r > 0.5 ? color(palette.ink, 0.14) : color((0, 0, 0), 0.10)
+        ctx.addPath(clip); ctx.setStrokeColor(edge); ctx.setLineWidth(1); ctx.strokePath()
+    }
+    return ctx.makeImage()!
+}
+
+let tagline = ["White-point balance for external displays,", "measured with an iPhone."]
+let readmeBanner = BannerLayout(
+    size: CGSize(width: 1280, height: 400), markCentre: CGPoint(x: 250, y: 200), k: 0.40,
+    arcPoints: [CGPoint(x: -30, y: 40), CGPoint(x: 250, y: 200), CGPoint(x: 700, y: 345), CGPoint(x: 1320, y: 368)],
+    wordmarkOrigin: CGPoint(x: 470, y: 142), wordmarkSize: 128, taglineLines: tagline, taglineSize: 28, radius: 24)
+// GitHub's social preview is 1280×640.
+let socialPreview = BannerLayout(
+    size: CGSize(width: 1280, height: 640), markCentre: CGPoint(x: 300, y: 300), k: 0.52,
+    arcPoints: [CGPoint(x: -30, y: 90), CGPoint(x: 300, y: 300), CGPoint(x: 760, y: 470), CGPoint(x: 1320, y: 515)],
+    wordmarkOrigin: CGPoint(x: 590, y: 250), wordmarkSize: 168, taglineLines: tagline, taglineSize: 34, radius: 0)
+write(banner(readmeBanner, palette: .light), to: readmeImages.appendingPathComponent("banner-light.png"))
+write(banner(readmeBanner, palette: .dark), to: readmeImages.appendingPathComponent("banner-dark.png"))
+write(banner(socialPreview, palette: .light), to: readmeImages.appendingPathComponent("social-preview.png"))
 
 // A side-by-side preview for review, not shipped.
 if let previewPath = CommandLine.arguments.dropFirst(2).first {
