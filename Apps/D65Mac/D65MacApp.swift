@@ -7,13 +7,15 @@ struct D65MacApp: App {
     @StateObject private var session: SessionModel
 
     init() {
-        let agent = AgentModel()
+        let agent = AgentModel(holdsDisplays: !Showcase.isActive)
         _agent = StateObject(wrappedValue: agent)
-        _session = StateObject(wrappedValue: SessionModel(agent: agent))
+        let session = SessionModel(agent: agent)
+        _session = StateObject(wrappedValue: session)
+        Showcase.models = (agent, session)
     }
 
     var body: some Scene {
-        MenuBarExtra {
+        MenuBarExtra(isInserted: .constant(!Showcase.isActive)) {
             MenuPanel(agent: agent)
                 .onAppear { delegate.agent = agent; delegate.session = session }
         } label: {
@@ -38,6 +40,15 @@ struct D65MacApp: App {
 @MainActor final class D65AppDelegate: NSObject, NSApplicationDelegate {
     weak var agent: AgentModel?
     weak var session: SessionModel?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard Showcase.isActive else { return }
+        // The menu panel's onAppear never runs in the showcase, so hand the models over here.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            if let (agent, session) = Showcase.models { Showcase.present(agent: agent, session: session) }
+        }
+    }
 
     /// Restore every display before exiting: cancel a running session (the engine restores), then release holds.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

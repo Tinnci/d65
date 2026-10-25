@@ -399,6 +399,22 @@ shows from what rests on that report alone.
 Still open from this run: E/F (does the bottom progress strip change the white reading?) and a
 quit-and-relaunch cycle with a read-only `d65 display probe` after each step.
 
+### DDC is silent while the display sleeps
+
+About 40 minutes after the session, DDC/CI on the K27 stopped responding. `d65 ddc probe`
+returned no reply for every control (9 exchanges, 27 retries, 9 failures, about 500 ms each), and
+`ddc capabilities` failed the same way. EDID still read at I²C address 0x50, and the gamma table
+and held correction were unaffected.
+
+Cause: the display had gone to sleep. `pmset -g log` shows "Display is turned off" at 13:08:13,
+and `CGDisplayIsAsleep` reported the K27 asleep while DDC was silent. The monitor's DDC/CI
+controller does not answer while asleep.
+
+The agent already skips sleeping displays when it polls, and waits 5 s after wake. The CLI and
+the debug screenshot mode did not check, so they reported timeouts; `d65 ddc` now says the
+display is asleep instead. A guard reading taken from a sleeping display would read "Can't verify
+monitor settings", which is truthful but not useful, so sleep must keep being skipped.
+
 ## Confounds to control in future runs
 
 | Confound | Effect | Mitigation |

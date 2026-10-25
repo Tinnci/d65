@@ -37,6 +37,17 @@ import SwiftUI
 
     init(agent: AgentModel) { self.agent = agent; reloadDisplays() }
 
+    #if DEBUG
+    /// Debug showcase only: put the window in a given step without a probe or a running engine.
+    func showcase(step: Step, probe: ProbeIdentity? = nil, placement: PlacementReading? = nil,
+                  patchIndex: Int = 0, record: ExperimentRecord? = nil) {
+        self.step = step; self.probe = probe
+        if let placement { self.placement = placement }
+        self.patchIndex = patchIndex; phase = CalibrationPatch.sequence[min(patchIndex, patchCount - 1)].name
+        self.record = record; summary = record.map(SessionSummary.init)
+    }
+    #endif
+
     var selected: DisplayInfo? { displays.first { $0.id == selectedID } }
     var patchCount: Int { CalibrationPatch.sequence.count }
     var secondsRemaining: Int {

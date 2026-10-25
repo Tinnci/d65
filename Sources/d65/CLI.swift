@@ -312,6 +312,9 @@ struct D65CLI {
         // DDC only exists on external displays, so default to the first external one rather than the main display.
         let displayID = selection["display-id"] != nil ? selectedDisplayID(selection)
             : DisplayDirectory.preferred(in: DisplayDirectory.online())?.id ?? CGMainDisplayID()
+        if CGDisplayIsAsleep(displayID) != 0 {
+            print("note: display \(displayID) is asleep; its DDC/CI controller won't answer until it wakes")
+        }
         guard let display = DDCDisplay.matching(displayID: displayID) else {
             fail("no unique DDC endpoint for the selected display; use display list and --display-id")
         }

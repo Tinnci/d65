@@ -46,8 +46,13 @@ private struct DisplayRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.display.name).fontWeight(.semibold)
                 Text(row.statusLine).font(.caption).monospacedDigit()
-                    .foregroundStyle(row.error != nil ? Theme.critical : row.stale != nil || row.unverified != nil ? Theme.warn : .secondary)
+                    .foregroundStyle(row.error != nil ? Theme.critical : row.stale != nil ? Theme.warn : .secondary)
                     .lineLimit(2)
+                if let note = row.note {
+                    Label(note, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(Theme.warn)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 8)
             if row.correction != nil {

@@ -29,6 +29,11 @@ import SwiftUI
             case .none: return .none
             }
         }
+        /// A caution under the status line, when the guard can't confirm the monitor's settings.
+        var note: String? {
+            guard error == nil, stale == nil, hold == .held, let unverified else { return nil }
+            return "Can’t verify monitor settings: \(unverified.lowercased())"
+        }
         var statusLine: String {
             if let error { return error }
             guard let correction else { return display.isBuiltin ? "Not calibrated · built-in" : "Not calibrated" }
@@ -36,9 +41,7 @@ import SwiftUI
             switch hold {
             case .paused: return "Correction off · ΔE00 \(Format.deltaE(correction.deltaE)) when on"
             case .previewing: return "Previewing"
-            default:
-                let line = "Corrected · ΔE00 \(Format.deltaE(correction.deltaE)) · \(Format.relative(correction.createdAt))"
-                return unverified.map { line + "\nCan’t verify monitor settings: \($0.lowercased())" } ?? line
+            default: return "Corrected · ΔE00 \(Format.deltaE(correction.deltaE)) · \(Format.relative(correction.createdAt))"
             }
         }
     }
@@ -50,6 +53,8 @@ import SwiftUI
 
     let store: CorrectionStore
     let recordDirectory: URL
+    /// False only in the debug showcase: nothing may write a gamma table.
+    let holdsDisplays: Bool
     private var holds: [String: (displayID: UInt32, hold: CorrectionHold)] = [:]
     private var readings: [String: MonitorReading] = [:]
     /// DDC endpoints often answer only a few seconds after wake; polls wait until then.
@@ -59,11 +64,25 @@ import SwiftUI
     private var calibrating: String?
     private var poll: Timer?
 
-    init() {
+    /// `holdsDisplays: false` reads the store and the monitors but never writes a gamma table
+    /// (used by the debug showcase, which may run beside the real agent).
+    init(holdsDisplays: Bool = true) {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("D65", isDirectory: true)
         store = CorrectionStore(url: support.appendingPathComponent("Corrections.json"))
         recordDirectory = support.appendingPathComponent("Experiments", isDirectory: true)
+        self.holdsDisplays = holdsDisplays
+        guard holdsDisplays else {
+            rows = DisplayDirectory.online().map { display in
+                let correction = store.correction(for: display.identity, modeSignature: display.modeSignature)
+                let verdict = correction.map {
+                    $0.check(modeSignature: display.modeSignature, monitor: DisplayDirectory.monitorReading(displayID: display.id))
+                }
+                return Row(display: display, correction: correction, hold: correction == nil ? .none : .held,
+                           verdict: verdict, error: nil)
+            }
+            return
+        }
         refresh()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
@@ -89,6 +108,7 @@ import SwiftUI
 
     /// `reapply` rewrites held tables; only display reconfiguration needs that, since the system may have reset them.
     func refresh(reapply: Bool = false) {
+        guard holdsDisplays else { return }
         let online = DisplayDirectory.online()
         // A display that left or changed ID has lost its table already; forget the hold without restoring.
         for (identity, entry) in holds where !online.contains(where: { $0.identity == identity && $0.id == entry.displayID }) {
@@ -147,6 +167,7 @@ import SwiftUI
     }
 
     private func hold(for display: DisplayInfo) -> CorrectionHold {
+        precondition(holdsDisplays, "the showcase must never hold a display")
         if let entry = holds[display.identity], entry.displayID == display.id { return entry.hold }
         let hold = CorrectionHold(backend: MacDisplayOutput(displayID: display.id))
         holds[display.identity] = (display.id, hold)

@@ -2,11 +2,13 @@ import D65Calibration
 import SwiftUI
 
 struct SettingsView: View {
+    enum Tab { case general, history }
     @ObservedObject var agent: AgentModel
+    @State var tab: Tab = .general
     var body: some View {
-        TabView {
-            GeneralSettings(agent: agent).tabItem { Label("General", systemImage: "gearshape") }
-            HistoryView(agent: agent).tabItem { Label("History", systemImage: "clock") }
+        TabView(selection: $tab) {
+            GeneralSettings(agent: agent).tabItem { Label("General", systemImage: "gearshape") }.tag(Tab.general)
+            HistoryView(agent: agent).tabItem { Label("History", systemImage: "clock") }.tag(Tab.history)
         }
         .frame(width: 560, height: 420)
         .tint(Theme.accent)
