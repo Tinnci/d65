@@ -1,0 +1,41 @@
+name: Release
+
+# Push a tag to release:  git tag -a v0.2.0-alpha.2 -m "…" && git push origin v0.2.0-alpha.2
+# The version comes from the tag; tags with a suffix (-alpha.N, -beta.N, -rc.N) become pre-releases.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the version stamp needs the tag and the full history
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Unit tests
+        run: swift test
+
+      - name: Package
+        run: scripts/package-release.sh "$GITHUB_REF_NAME"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          sed "s/<version>/${TAG#v}/g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" --verify-tag --title "D65 ${TAG#v}" \
+            --notes-file "$RUNNER_TEMP/notes.md" --generate-notes $prerelease dist/*

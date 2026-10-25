@@ -32,14 +32,14 @@ targets:
       properties:
         CFBundleDisplayName: D65
         D65SoftwareRevision: unknown
-        CFBundleShortVersionString: "0.2.0"
+        CFBundleShortVersionString: "0.0.0" # stamped from the latest v* tag by scripts/stamp-revision.sh
         LSApplicationCategoryType: public.app-category.utilities
         LSUIElement: true
         NSLocalNetworkUsageDescription: D65 finds your iPhone probe on the local network.
         NSBonjourServices:
           - _d65._tcp
     postBuildScripts:
-      - name: Stamp source revision
+      - name: Stamp version and source revision
         script: sh "$SRCROOT/scripts/stamp-revision.sh"
         basedOnDependencyAnalysis: false
         inputFiles:
@@ -80,7 +80,8 @@ targets:
       path: Apps/D65Probe/Info.plist
       properties:
         CFBundleDisplayName: D65 Probe
-        CFBundleShortVersionString: "0.2.0"
+        CFBundleShortVersionString: "0.0.0" # stamped from the latest v* tag by scripts/stamp-revision.sh
+        D65SoftwareRevision: unknown
         UILaunchScreen:
           UIColorName: LaunchBackground
         NSLocalNetworkUsageDescription: D65 Probe sends measurements to the Mac on your local network.
@@ -90,6 +91,12 @@ targets:
           - UIInterfaceOrientationPortrait
         NSBonjourServices:
           - _d65._tcp
+    postBuildScripts:
+      - name: Stamp version and source revision
+        script: sh "$SRCROOT/scripts/stamp-revision.sh"
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tinnci.d65.probe
