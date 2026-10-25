@@ -51,7 +51,7 @@ Sources/d65              CLI: selftest, gains, cct, verify
 Apps/D65Mac              macOS app shell (SwiftUI)
 Apps/D65Probe            iPhone probe shell (SwiftUI)
 docs/architecture.md     module boundaries and data flow
-docs/research/           what Apple's Color Balance actually does
+docs/research/           what Apple's Color Balance does, and how it reads the ALS
 project.yml              XcodeGen spec for the two apps
 ```
 
