@@ -38,7 +38,8 @@ swift run d65 ddc probe        # read the monitor's hardware RGB gain over DDC/C
 ```
 
 `--hold` matters: macOS restores the gamma table as soon as the process that set it exits, so an
-un-held `apply` is effectively a no-op. Calibration sessions restore their starting tables when they finish. A persistent correction agent is future work.
+un-held `apply` is effectively a no-op. Calibration sessions restore their starting tables when they finish. The Mac app's menu-bar
+agent can separately keep and hold an accepted correction.
 
 ```
 measured   x=0.3144 y=0.3344  CCT≈6382 K
@@ -50,10 +51,17 @@ predicted  x=0.3127 y=0.3290  CCT≈6508 K
 `swift test` additionally requires a full Xcode installation, because XCTest is not shipped with
 the Command Line Tools. CI runs both.
 
+The first protocol-v3 hardware run at `b219ab6` reached normalized ΔE00 **4.56 → 1.40** in
+one pass and restored the starting gamma tables without reported errors. See
+[experiment §13](docs/experiments.md#13-first-real-session-after-the-shared-engine-and-app-changes)
+and the [session runbook](docs/runbook.md). This is convergence against the ALS, not validation
+against a reference colorimeter.
+
 ## Documentation
 
 | Document | Contents |
 |---|---|
+| [docs/runbook.md](docs/runbook.md) | build/install the real probe and reproduce a hardware session |
 | [docs/status.md](docs/status.md) | what works, what does not, next steps |
 | [docs/implementation.md](docs/implementation.md) | modules, CLI, wire protocol |
 | [docs/experiments.md](docs/experiments.md) | every measurement, with numbers |

@@ -42,7 +42,8 @@ swift run d65 ddc writable [--display-id <id>]
 swift run d65 serve [--port <p>] [--display-id <id>]
 ```
 
-Display selection defaults to the main display. DDC requires a unique EDID match to that selection;
+`serve` defaults to the preferred external display, falling back to an available screen. Standalone
+`display` and `ddc` commands default to the main display. DDC requires a unique EDID match to the selection;
 use `display list` to find the external screen's ID when the main screen is built in.
 
 `serve` accepts at most one action flag:
@@ -122,7 +123,16 @@ The app build stamps `git describe --always --dirty` into `D65SoftwareRevision` 
 `scripts/stamp-revision.sh`. Core/measurement/session code uses Swift 6. Platform host and CLI remain
 in Swift 5 language mode with explicit main-actor isolation at workflow boundaries.
 
-Tests cover colour reference pairs, effective-gain resolution, framing including v2, measurement
+Tests cover colour reference pairs, effective-gain resolution, framing including v3, measurement
 window filtering, transactional gamma tables, engine outcomes/cleanup, DDC failures, connection
 isolation, measured brightness restoration and atomic record round trips. They do not substitute
 for a physical reference-colorimeter run.
+
+## Hardware validation
+
+The CLI plus physical D65 Probe were exercised at `b219ab6` on 2026-10-25: normalized ΔE00
+4.56 → 1.40 in one pass, fitted gamma 2.114, and no reported restoration errors. The run included
+protocol-v3 placement, twelve patches, a correction and verification, record saving, and table
+restoration. It did not exercise GUI persistence or reference-colorimeter accuracy. Full numbers
+are in [experiment §13](experiments.md#13-first-real-session-after-the-shared-engine-and-app-changes);
+[runbook.md](runbook.md) documents how to reproduce the session.

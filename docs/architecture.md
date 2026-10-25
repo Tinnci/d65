@@ -16,8 +16,10 @@ owns the workflow used by the CLI and Mac app. Platform and transport adapters s
 | d65 / D65Mac | command/UI configuration and presentation of results | libraries above |
 
 The private ALS acquisition experiment remains in the ignored `local/als-probe` directory. Its
-network client is shared from `Apps/D65Probe/LinkClient.swift`; the checked-in probe app is still a
-sensor-free shell. The probe never solves a correction.
+network client is shared from `Apps/D65Probe/LinkClient.swift`. The tracked probe UI discovers a
+locally injected sensor factory, a labelled Simulator source, or reports no sensor. Optional local
+sources in `project.yml` let the real D65Probe build include the private ALS adapter. The probe
+never solves a correction.
 
 ## Session ownership
 
@@ -73,12 +75,17 @@ and available brightness, contrast, preset and input readbacks. Readbacks are di
 not evidence of optical effect. The mode is checked before/after measurements and before writes;
 a changed/disconnected display aborts the run. Restoring a table captured in another mode is
 refused and reported. HDR/chroma/range remain unknown unless supplied as a `DisplayModeKey`.
-Records with incomplete mode information must not become automatic calibration-cache entries.
-There is no automatic replay or calibration cache yet.
+`CorrectionStore` now saves explicit GUI Keep decisions per display identity and a mode signature
+of pixel dimensions plus rounded refresh rate. It falls back to the most recent correction for that
+display when the mode differs; the agent flags it stale rather than guaranteeing it is valid.
+Contrast/preset changes also make it stale. HDR/chroma/range are not included in that signature, so
+it is not a complete signal-mode validity check. This partial-key replay policy needs hardware
+validation; do not infer validity from a successful load.
 
 ## Measurement boundary
 
-Protocol v2 issues a `MeasurementRequest` with session ID, unique patch ID, settling time and
+Protocol v3 adds the placement preview and stillness handshake to the tagged windows introduced
+in v2. For each measurement the host issues a `MeasurementRequest` with session ID, unique patch ID, settling time and
 sampling duration. Samples echo both IDs. The host rejects stale/foreign tags and caps buffered
 samples. The collector uses receiver-local arrival time, avoiding a phone/Mac clock-sync requirement.
 It excludes settling samples, invalid/nonfinite/negative readings, luminance and chromaticity
@@ -109,9 +116,15 @@ its bundle. CLI artifacts live in `local/experiments`; app artifacts live in
 Deterministic tests inject probes, displays, clocks and presenters. They cover missing samples,
 disconnects, cancellation, failed/partial writes, exact restoration, consecutive and concurrent
 sessions, brightness restoration, foreign sample tags, connection admission, DDC read failures and
-record round trips. Actual sensor accuracy and physical effects still require hardware experiments.
+record round trips. Revision `b219ab6` additionally completed a real CLI/probe session on the K27:
+normalized ΔE00 4.56 → 1.40 in one pass, no reported restoration errors. See
+[experiment §13](experiments.md#13-first-real-session-after-the-shared-engine-and-app-changes).
+The GUI Keep/Discard path and sensor accuracy against a reference remain unverified on hardware.
 
 ## Non-goals
 
-No distributed services, ICC profiling, gamut correction, automatic replay, or reference-colorimeter
-accuracy claims. Persistent correction ownership and crash recovery remain future app work.
+No distributed services, ICC profiling, gamut correction, or reference-colorimeter accuracy claims.
+The Mac agent owns explicitly kept corrections through `CorrectionHold`, restores on normal quit,
+and can reapply stored corrections when launched or when a display returns. Engine sessions still
+restore before Review; preview/Keep is separate from measurement. Full mode validity and crash
+recovery beyond macOS process-exit behavior remain limitations.

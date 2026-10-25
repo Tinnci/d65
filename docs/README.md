@@ -5,6 +5,7 @@ Everything known about this project, in reading order.
 | Document | What it answers |
 |---|---|
 | [status.md](status.md) | What works today, what does not, and what is next |
+| [runbook.md](runbook.md) | Build/install the real probe, run a session, inspect results |
 | [implementation.md](implementation.md) | Module layout, CLI reference, wire protocol |
 | [experiments.md](experiments.md) | What was measured, with dates, numbers and conclusions |
 | [hardware.md](hardware.md) | The test display: DDC capabilities, gamma behaviour |
@@ -17,7 +18,9 @@ Everything known about this project, in reading order.
 D65 measures an external display with an iPhone's ambient-light sensor, solves a per-channel
 white-point correction, and applies it to the Mac's gamma table. The measurement path, the solver
 and the output path have historical hardware evidence. The current shared session engine is covered
-by deterministic tests; it still needs a fresh hardware run with the rebuilt protocol-v2 probe.
+by deterministic tests and a protocol-v3 hardware run: normalized ΔE00 4.56 → 1.40 in one pass,
+with no reported restoration errors (experiment §13). The GUI Keep/Discard flow still needs a
+hardware run.
 Absolute sensor accuracy and reliable single-pass convergence remain unproven. This panel ignores
 hardware RGB gain writes. See the architecture notes for new normalized ΔE metrics and records.
 

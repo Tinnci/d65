@@ -2,7 +2,7 @@
 
 Last updated 2026-10-25, after the experiments in [experiments.md](experiments.md).
 
-## Architecture update (software verification)
+## Architecture update and first hardware validation
 
 The CLI and Mac app now share `D65Calibration` through `D65MacRuntime`. Sessions are main-actor
 isolated, restore captured gamma tables, distinguish termination outcomes and save schema-v1 JSON
@@ -10,8 +10,12 @@ records. Protocol v3 requires rebuilding the local probe; legacy sessions are re
 failure/cancellation paths, consecutive sessions, connection isolation, DDC read errors and measured
 brightness restoration. See [architecture.md](architecture.md) and [implementation.md](implementation.md).
 The first real run at revision `b219ab6` converged in one pass: normalized ΔE00 4.56 → 1.40,
-with fitted gamma 2.114 and no reported restoration errors. See experiment §13. New white-error
+with fitted gamma 2.114 and no reported restoration errors. See [experiment §13](experiments.md#13-first-real-session-after-the-shared-engine-and-app-changes). New white-error
 metrics normalize Y=1 and must not be compared directly with historical absolute-Y numbers below.
+
+Reproduce the session with [runbook.md](runbook.md). Before the run, 60 XCTest cases, the CLI
+self-checks, the Mac app build and the signed physical-probe build passed. GUI Keep/Discard and
+persistence have software coverage, but were not exercised in this hardware session.
 
 ## Verified working
 
@@ -19,13 +23,13 @@ metrics normalize Y=1 and must not be compared directly with historical absolute
 |---|---|
 | iPhone ALS measurement (X/Y/Z/CCT, ~4 Hz) | sideloaded probe, cover test, 3 stable sessions within 85 K |
 | Motion gating | samples dropped while moving, kept when still |
-| Bonjour link and framing | 8-patch session end to end, 2 Hz samples |
+| Bonjour link and framing | protocol-v3 placement, twelve patches plus verification in experiment §13 |
 | Ambient subtraction from black patch | emissive values consistent across patches |
 | White-point solve + quality gate | ΔE00 17–19 → predicted 0.2–0.5 |
 | Alpha search | largest blend that passes the gate |
 | Gamma output | apply/read-back/reset; closed-loop shift of −1760 K |
 | Panel gamma fit | grey ramp → γ = 2.11 (least squares), fed into the adapter |
-| Convergence | ΔE00 24.0 → 2.8 → 1.4 in two passes, in one session |
+| Convergence | normalized ΔE00 4.56 → 1.40 in one pass (§13); earlier absolute-Y runs are separate evidence |
 | DDC reads | luminance, contrast, RGB gain, input, preset |
 | DDC brightness write | write 100 raised measured Y by 93 % — genuinely effective |
 | DDC contrast write | 50→80 measured: Y +17.5 %, Δxy 0.0247, restored |
@@ -59,7 +63,7 @@ metrics normalize Y=1 and must not be compared directly with historical absolute
 
 1. **Hardware validation of the new harness.** `d65 serve --effect-test` now records measurements
    and verifies restoration; `--brightness-test` adds measured restoration search. Run it with the
-   rebuilt protocol-v2 probe. Per-display capability caching and richer classifications remain future work.
+   rebuilt protocol-v3 probe. Per-display capability caching and richer classifications remain future work.
 2. **Hardware run of the GUI flow.** The menu-bar agent, placement handshake, review preview and
    correction store are built and unit-tested, not yet exercised on the HAN K27. Check that the
    bottom-edge progress strip and the placement outline do not move the white reading (expect

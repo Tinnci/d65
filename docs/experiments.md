@@ -1,7 +1,8 @@
 # Experiments
 
-Everything measured on 2026-10-25, in the order it happened. Numbers are the ones printed by
-`d65 serve` and `d65 ddc`, not rounded afterwards.
+Everything measured on 2026-10-25, in the order it happened. §§1–12 reproduce the numbers recorded
+from `d65 serve` and `d65 ddc`. §13 also includes statistics from the structured JSON record,
+rounded to the displayed precision; the local JSON retains full precision.
 
 Hardware: iPhone Air (iPhone18,4) running current iOS, signed with a free personal team; Mac with
 Apple M6; display `HAN K27`, 3840×2160, attached over USB-C. Room lighting was not controlled
@@ -296,6 +297,37 @@ restoration   no errors; follow-up probe showed identical linear R/G/B ramps, 10
 These errors use **Y=1 normalization**, unlike the absolute-Y errors in §§1–12. They must not
 be compared numerically with the old 17–24 ΔE00 baselines. This demonstrates the new workflow
 on real hardware; it does not validate the ALS against a reference colorimeter.
+
+Raw patch means, before ambient subtraction (Y units are those reported by the probe):
+
+| Patch | Accepted samples | Y | x | y | Standard error of Y |
+|---|---:|---:|---:|---:|---:|
+| black | 8 | 1.2901 | 0.28008 | 0.26465 | 0.0193 |
+| white | 8 | 143.7338 | 0.30883 | 0.32033 | 0.1303 |
+| red | 8 | 36.4380 | 0.60923 | 0.33934 | 0.0533 |
+| green | 8 | 104.9225 | 0.27247 | 0.51093 | 0.0666 |
+| blue | 8 | 12.1104 | 0.17380 | 0.06659 | 0.0170 |
+| yellow | 8 | 134.0697 | 0.38627 | 0.45868 | 0.0975 |
+| cyan | 8 | 103.9986 | 0.21063 | 0.25031 | 0.0577 |
+| magenta | 8 | 40.4360 | 0.33447 | 0.15546 | 0.0759 |
+| grey20 | 8 | 6.1253 | 0.30461 | 0.31364 | 0.0222 |
+| grey40 | 9 | 21.5321 | 0.30446 | 0.31491 | 0.0576 |
+| grey60 | 8 | 48.2292 | 0.30741 | 0.31894 | 0.0425 |
+| grey80 | 8 | 88.8282 | 0.30747 | 0.31863 | 0.0670 |
+| white verification | 8 | 143.0024 | 0.31062 | 0.32574 | 0.1120 |
+
+The reported restoration is the engine's successful table write, with an empty
+`restorationErrors` list and lifecycle `idle → measuring → applying → verifying → restoring →
+finished`. The follow-up table probe checks the post-session ramp shape; no post-restoration
+optical white reading was taken.
+
+Pre-session checks passed: 60 XCTest cases (15 core, 3 link, 40 calibration, 2 runtime), all CLI
+self-checks, the unsigned Mac app build, and the signed physical-device probe build. The tested
+workflow was CLI calibration plus the real probe, not the GUI review/Keep flow.
+
+Commit `b219ab6` contains the engine and apps; `d59f022` first recorded this hardware result.
+See [runbook.md](runbook.md) for reproduction and the distinction between temporary sessions and
+kept corrections.
 
 The session ran for 33.35 seconds and restored its starting gamma tables. It did not retain a
 correction. Raw tagged attempts, measurements, gains, lifecycle and outcome are saved locally in
