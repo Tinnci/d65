@@ -82,7 +82,9 @@ re-measures; `--gamma-test` applies a fixed B=0.70 gain and re-measures.
 
 `d65 serve` advertises `_d65._tcp`. On `hello` it runs one session:
 
-1. Eight patches, 2 s each: black, white, red, green, blue, yellow, cyan, magenta. The probe is
+1. Twelve patches, 2 s each: black, white, red, green, blue, yellow, cyan, magenta, then grey
+   20/40/60/80 %. The greys are used to fit the panel gamma (`Y/Y_white = level^γ`) before any
+   correction is computed. The probe is
    told which patch is live via `progress`, and only samples during those windows.
 2. Ambient is subtracted from every patch using the black reading.
 3. White → gains → predicted ΔE00 → quality gate.

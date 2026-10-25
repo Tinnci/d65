@@ -13,6 +13,8 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 | White-point solve + quality gate | ΔE00 17–19 → predicted 0.2–0.5 |
 | Alpha search | largest blend that passes the gate |
 | Gamma output | apply/read-back/reset; closed-loop shift of −1760 K |
+| Panel gamma fit | grey ramp → γ = 2.11 (least squares), fed into the adapter |
+| Convergence | ΔE00 24.0 → 2.8 → 1.4 in two passes, in one session |
 | DDC reads | luminance, contrast, RGB gain, input, preset |
 | DDC writes (partial) | luminance, contrast, preset, input accepted |
 
@@ -40,15 +42,13 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 
 ## Next steps, in order
 
-1. **Fit the panel gamma.** The compensation assumes γ = 2.2. Measuring a grey ramp would let the
-   first pass land closer to target and reduce the number of passes.
-2. **Menu-bar agent.** The gamma table is reverted when the setting process exits, so the shipping
+1. **Menu-bar agent.** The gamma table is reverted when the setting process exits, so the shipping
    app must be a persistent agent that holds the correction and restores on quit.
-3. **Manual controls.** Hardware (DDC) and software (gamma) sections, each with reset, with the
+2. **Manual controls.** Hardware (DDC) and software (gamma) sections, each with reset, with the
    hardware section disabled unless `d65 ddc writable` says the panel accepts writes.
-4. **Persistence.** Store per `DisplayModeKey` with a schema version, plus crash recovery to the
+3. **Persistence.** Store per `DisplayModeKey` with a schema version, plus crash recovery to the
    previous known-good table.
-5. **Alignment.** A stand or an on-screen outline, mirroring why Apple's flow asks the user to align
+4. **Alignment.** A stand or an on-screen outline, mirroring why Apple's flow asks the user to align
    the phone and checks for motion.
 
 ## Risks

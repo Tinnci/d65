@@ -44,7 +44,7 @@ final class CalibrationServer {
     private let applyToDisplay: Bool
     private let ddcTest: Bool
     private let gammaTest: Bool
-    private let output = MacDisplayOutput()
+    private var output = MacDisplayOutput()
     private let normalizer = MeasurementNormalizer(minimumLux: 1)
     private var buffers: [ObjectIdentifier: Data] = [:]
     private var samples: [String: [MeasurementSample]] = [:]
@@ -169,6 +169,10 @@ final class CalibrationServer {
         Patch(name: "yellow", color: .yellow),
         Patch(name: "cyan", color: .cyan),
         Patch(name: "magenta", color: .magenta),
+        Patch(name: "grey20", color: NSColor(white: 0.20, alpha: 1)),
+        Patch(name: "grey40", color: NSColor(white: 0.40, alpha: 1)),
+        Patch(name: "grey60", color: NSColor(white: 0.60, alpha: 1)),
+        Patch(name: "grey80", color: NSColor(white: 0.80, alpha: 1)),
     ]
 
     private func startSession() {
@@ -247,7 +251,8 @@ final class CalibrationServer {
             if value.y > 0.3 { emitted[patch.name] = value }
         }
 
-        for name in ["white", "red", "green", "blue", "yellow", "cyan", "magenta"] {
+        for name in ["white", "red", "green", "blue", "yellow", "cyan", "magenta",
+                     "grey20", "grey40", "grey60", "grey80"] {
             if let value = emitted[name] { describe(name, value) }
         }
 
@@ -280,6 +285,29 @@ final class CalibrationServer {
             print("measurement: white too dim — raise display brightness")
             sessionRunning = false
             return
+        }
+
+        // Fit the panel gamma from the grey ramp: Y_grey / Y_white = level^gamma.
+        if let whiteValue = emitted["white"], whiteValue.y > 1 {
+            let ramp: [(String, Double)] = [("grey20", 0.20), ("grey40", 0.40), ("grey60", 0.60), ("grey80", 0.80)]
+            var sumXY = 0.0
+            var sumXX = 0.0
+            var points: [String] = []
+            for (name, level) in ramp {
+                guard let y = emitted[name]?.y, y > 0.5 else { continue }
+                let x = log(level)
+                let yValue = log(y / whiteValue.y)
+                sumXY += x * yValue
+                sumXX += x * x
+                points.append(String(format: "%@ %.3f→%.3f", name, level, y / whiteValue.y))
+            }
+            if sumXX > 0 {
+                let fitted = min(max(sumXY / sumXX, 1.6), 2.8)
+                output.gamma = fitted
+                print(String(format: "gamma fit %.2f from %@", fitted, points.joined(separator: " ")))
+            } else {
+                print("gamma fit: not enough grey samples, keeping \(output.gamma)")
+            }
         }
 
         let gate = QualityGate()

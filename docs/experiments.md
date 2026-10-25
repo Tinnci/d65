@@ -166,8 +166,34 @@ The third pass drifts up by 0.57, inside measurement noise, so the loop reports 
 rather than the last one. Convergence is now 18.75 → 2.36 in two passes, against 17.28 → 9.78
 before the gamma compensation.
 
-Remaining error is dominated by the assumed γ; the panel's real transfer function is not known.
-A fitted γ (measure a grey ramp) would tighten the first pass further.
+Remaining error was dominated by the assumed γ. That was measured next — see §9.
+
+## 9. Fitting the panel gamma
+
+Four grey patches (20/40/60/80 %) were added to the session. Emitted luminance relative to white:
+
+```
+grey20  0.200 → 0.034
+grey40  0.400 → 0.141
+grey60  0.600 → 0.325
+grey80  0.800 → 0.618
+gamma fit 2.11
+```
+
+A least-squares slope through `log(Y/Y_white) = γ·log(level)` gives **γ = 2.11**, not the assumed
+2.2. The fit is fed straight into `MacDisplayOutput.gamma` before any correction is applied.
+
+Same session, with the fitted gamma:
+
+```
+baseline                              ΔE00 24.02   (CCT 7411 K)
+pass 1  B=0.8415   → 6572 K           ΔE00  2.82
+pass 2  B=0.9842   → 6520 K           ΔE00  1.44
+CONVERGED after 2 passes, best ΔE00 1.44
+```
+
+Compared with the fixed-2.2 runs (first pass 3.37 and 6.44, final 0.99 and 2.36), the first pass is
+closer and the final result is under 1.5. Fitting γ is cheap and removes a systematic error.
 
 ## Confounds to control in future runs
 
