@@ -31,6 +31,7 @@ swift run d65 gains 0.94 1.00 1.05
 swift run d65 display probe                                  # read-only
 swift run d65 display apply --r 0.97 --g 0.95 --b 1.0 --hold 10
 swift run d65 display reset
+swift run d65 serve            # advertise _d65._tcp, solve gains from a probe
 ```
 
 `--hold` matters: macOS restores the gamma table as soon as the process that set it exits, so an

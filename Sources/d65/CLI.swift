@@ -23,6 +23,8 @@ struct D65CLI {
             runVerification(arguments)
         case "display":
             runDisplay(arguments)
+        case "serve":
+            runServe(arguments)
         case "-h", "--help", "help":
             printUsage()
         default:
@@ -59,6 +61,9 @@ struct D65CLI {
 
               d65 display reset
                   Restore the system ColorSync display settings.
+
+              d65 serve [--port <p>] [--apply]
+                  Advertise _d65._tcp and solve gains from probe measurements.
             """
         )
     }
@@ -179,6 +184,27 @@ struct D65CLI {
         }
         #else
         fail("display commands are macOS only")
+        #endif
+    }
+
+    static func runServe(_ arguments: [String]) {
+        #if os(macOS)
+        setvbuf(stdout, nil, _IOLBF, 0)
+        let options = parseOptions(arguments)
+        let port = UInt16(options["port"] ?? 50515)
+        let apply = arguments.contains("--apply")
+
+        do {
+            let server = try CalibrationServer(port: port, applyToDisplay: apply)
+            server.start()
+            print("apply to display: \(apply ? "yes" : "no (use --apply)")")
+            print("press Ctrl-C to stop")
+            RunLoop.main.run()
+        } catch {
+            fail("serve failed: \(error)")
+        }
+        #else
+        fail("serve is macOS only")
         #endif
     }
 

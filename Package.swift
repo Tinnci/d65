@@ -19,7 +19,11 @@ let package = Package(
         .target(name: "D65Measurement", dependencies: ["D65Core"]),
         .target(name: "D65Link", dependencies: ["D65Core", "D65Measurement"]),
         .target(name: "D65Display", dependencies: ["D65Core"]),
-        .executableTarget(name: "d65", dependencies: ["D65Core", "D65Display", "D65Link"]),
+        .executableTarget(
+            name: "d65",
+            dependencies: ["D65Core", "D65Display", "D65Link", "D65Measurement"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(name: "D65CoreTests", dependencies: ["D65Core"]),
         .testTarget(name: "D65LinkTests", dependencies: ["D65Link", "D65Measurement"]),
     ]
