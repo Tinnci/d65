@@ -25,3 +25,4 @@ Package.resolved
 .env.*
 *.local
 local/
+docs/.DS_Store
