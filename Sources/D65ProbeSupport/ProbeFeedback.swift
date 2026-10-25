@@ -100,7 +100,10 @@ public struct ProbeFeedbackPolicy: Sendable {
                                     settlingSeconds: Double, at now: Double) -> ProbeHapticPlan? {
         guard seenWindows.insert(id).inserted else { return nil }
         window = id
-        let cue: ProbeHapticCue = first ? .measurementStarted : (verification ? .verification : .patch)
+        // Ordinary patches stay silent: the user can't act on them, and each tap nudges a phone
+        // lying on the glass. Only the start and each verification pass are felt.
+        guard first || verification else { return nil }
+        let cue: ProbeHapticCue = first ? .measurementStarted : .verification
         let duration = cue.plan(strength: strength).duration
         guard settlingSeconds.isFinite, settlingSeconds >= duration + 0.25 + 0.05 else { return nil }
         return decide(cue, at: now)

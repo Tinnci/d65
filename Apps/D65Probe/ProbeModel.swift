@@ -27,6 +27,38 @@ import UIKit
     @Published private(set) var isSimulated = false
     @Published private(set) var lastReading: Double?
     @Published private(set) var alignmentReading: DepthAlignmentReading?
+    /// TrueDepth approach guide. Off by default: it doesn't change the measurement (taken flat on the
+    /// glass), switches on an infrared emitter next to the light sensor, and holds the Mac's start.
+    @Published var approachGuide = UserDefaults.standard.bool(forKey: "probeApproachGuide") {
+        didSet {
+            UserDefaults.standard.set(approachGuide, forKey: "probeApproachGuide")
+            if !approachGuide { alignment.stop() }
+        }
+    }
+    @Published var showingSettings = false
+    /// The first-run guide; also reachable from Settings.
+    @Published var showingGuide = false
+    var guideStartPage = 0
+    static var hasSeenGuide: Bool {
+        get { UserDefaults.standard.bool(forKey: "probeGuideSeen") }
+        set { UserDefaults.standard.set(newValue, forKey: "probeGuideSeen") }
+    }
+
+    /// The link starts only after the guide, so the Local Network prompt follows its explanation.
+    func finishGuide() {
+        Self.hasSeenGuide = true
+        showingGuide = false
+        start()
+    }
+
+    func showGuide() {
+        showingSettings = false
+        guideStartPage = 0
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450)) // let the settings sheet leave first
+            showingGuide = true
+        }
+    }
     @Published var hapticStrength: ProbeHapticStrength {
         didSet {
             guard hapticStrength != oldValue else { return }
@@ -77,6 +109,7 @@ import UIKit
     func didEnterBackground() { alignment.stop() }
 
     func startAlignment() {
+        guard approachGuide else { return }
         switch phase {
         case .searching, .ready, .placing: alignment.start()
         default: break
@@ -140,6 +173,23 @@ import UIKit
     private var isTerminal: Bool {
         switch phase { case .refused, .noSensor: true; default: false }
     }
+
+    #if DEBUG
+    /// Debug-only screenshot states: launch with `-showcase <searching|ready|placing|measuring|result|settings>`.
+    func showcase(_ name: String) {
+        switch name {
+        case "ready", "settings": phase = .ready
+        case "placing": phase = .placing
+        case "measuring": phase = .measuring(phase: "blue", fraction: 4.0 / 12)
+        case "result": phase = .result(verdict: .improved, before: 4.18, after: 1.69)
+        default: phase = .searching
+        }
+        if name.hasPrefix("guide"), let page = Int(name.dropFirst(5)) {
+            guideStartPage = page - 1; showingGuide = true
+        }
+        showingSettings = name == "settings"
+    }
+    #endif
 
     /// Results stay until the Mac starts the next placement.
     func dismissResult() { haptics.play(.selection); phase = link.isConnected ? .ready : .searching }

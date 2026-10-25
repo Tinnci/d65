@@ -148,4 +148,15 @@ final class ProbeFeedbackTests: XCTestCase {
         let contact = DepthAlignmentReading(status: .estimate, distanceMeters: 0.005, tiltDegrees: 0, message: "Invalid close depth")
         XCTAssertNil(policy.alignment(contact, at: 12))
     }
+
+    func testOrdinaryPatchesAreSilentButStillBlockOtherCues() {
+        var policy = ProbeFeedbackPolicy(strength: .clear)
+        XCTAssertNotNil(policy.openWindow(id: UUID(), first: true, verification: false, settlingSeconds: 0.5, at: 0))
+        policy.playbackEnded(at: 0.2)
+        let patch = UUID()
+        XCTAssertNil(policy.openWindow(id: patch, first: false, verification: false, settlingSeconds: 0.5, at: 5))
+        XCTAssertNil(policy.request(.connected, at: 6), "an open sample window still blocks other cues")
+        policy.closeWindow(id: patch)
+        XCTAssertNotNil(policy.request(.selection, at: 7))
+    }
 }

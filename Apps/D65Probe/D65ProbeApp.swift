@@ -11,7 +11,15 @@ struct D65ProbeApp: App {
     var body: some Scene {
         WindowGroup {
             ProbeView(model: model)
-                .onAppear { model.start() }
+                .onAppear {
+                    #if DEBUG
+                    let arguments = ProcessInfo.processInfo.arguments
+                    if let index = arguments.firstIndex(of: "-showcase"), index + 1 < arguments.count {
+                        model.showcase(arguments[index + 1]); return
+                    }
+                    #endif
+                    if ProbeModel.hasSeenGuide { model.start() } else { model.showingGuide = true }
+                }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { model.didBecomeActive() } else { model.didLeaveForeground() }
                     if phase == .background { model.didEnterBackground() }
@@ -38,18 +46,23 @@ struct ProbeView: View {
         ZStack {
             background.ignoresSafeArea()
             VStack(spacing: 0) {
-                Spacer()
-                VStack(spacing: 22) {
-                    content
-                    if !faceDown { hapticControls }
+                header
+                Spacer(minLength: 24)
+                content.frame(maxWidth: 340).padding(.horizontal, 28)
+                Spacer(minLength: 24)
+                if !faceDown {
+                    StepStrip(current: step).padding(.horizontal, 28)
+                    if model.isSimulated { simulatedWarning.padding(.top, 14) }
                 }
-                .frame(maxWidth: 340).padding(.horizontal, 28)
-                Spacer()
-                footer.padding(.bottom, 12)
             }
+            .padding(.bottom, 16)
         }
         .animation(.easeInOut(duration: 0.25), value: model.phase)
         .tint(ProbeTheme.accent)
+        .sheet(isPresented: $model.showingSettings) { ProbeSettings(model: model) }
+        .fullScreenCover(isPresented: $model.showingGuide) {
+            OnboardingView(startPage: model.guideStartPage) { model.finishGuide() }
+        }
     }
 
     /// While sampling, the screen faces the monitor at 1 % brightness: render (almost) nothing.
@@ -59,106 +72,181 @@ struct ProbeView: View {
 
     private var background: Color { faceDown ? .black : Color(.systemBackground) }
 
+    private var header: some View {
+        HStack {
+            Text("D65 Probe").font(.headline).foregroundStyle(faceDown ? Color(white: 0.2) : .secondary)
+            Spacer()
+            if !faceDown {
+                Button { model.showingSettings = true } label: {
+                    Image(systemName: "gearshape").font(.title3)
+                }
+                .accessibilityLabel("Settings")
+            }
+        }
+        .padding(.horizontal, 24).padding(.top, 8)
+    }
+
+    /// Where the session is: 0 connect, 1 place, 2 measure, 3 review on the Mac.
+    private var step: Int {
+        switch model.phase {
+        case .noSensor, .searching, .localNetworkOff, .refused: 0
+        case .ready: 1
+        case .placing, .measuring: 2
+        case .result, .cancelled, .measurementComplete, .failed: 3
+        }
+    }
+
+    private var tapPromise: String {
+        model.hapticStrength == .off ? "" : " You’ll feel a tap when measuring starts."
+    }
+
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .noSensor:
             Message(mark: .critical, title: "No light sensor in this build",
-                    text: "D65 Probe needs a sensor source. The private ambient-light reader lives in local/als-probe and is compiled in only on your own machine.")
+                    text: "D65 Probe needs a sensor source. The private ambient-light reader lives in local/ and is compiled in only on your own machine.")
         case .searching:
             Message(mark: .none, title: "Looking for your Mac…",
-                    text: "Open Calibrate Display… on the Mac. Both devices must be on the same Wi-Fi.", busy: true) {
-                alignmentControls(dimmed: false)
-            }
+                    text: "On the Mac, choose Calibrate Display… in the D65 menu. Both devices need the same Wi-Fi.", busy: true)
         case .localNetworkOff(let text):
-            Message(mark: .critical, title: "Local Network is off", text: text + " Turn it on to find your Mac.") {
+            Message(mark: .critical, title: "Local Network is off", text: text + " Turn it on so the probe can find your Mac.") {
                 Button("Open Settings") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
                     .buttonStyle(.borderedProminent)
             }
         case .ready:
-            Message(mark: .held, title: "Connected to D65",
-                    text: "When the Mac shows the outline, press this phone face-down inside it, top edge up. You’ll feel a tap when measuring starts.") {
-                alignmentControls(dimmed: false)
+            Message(mark: .held, title: "Connected",
+                    text: "When the Mac shows an outline, press the front of this phone flat inside it, top edge up, and let go of any pressure." + tapPromise) {
+                if model.approachGuide { ApproachGuide(model: model, dimmed: false) }
             }
         case .placing:
             VStack(spacing: 16) {
                 DimMessage(title: "Face-down on the outline", text: "Hold still")
-                alignmentControls(dimmed: true)
+                if model.approachGuide { ApproachGuide(model: model, dimmed: true) }
             }
         case .measuring(let phase, let fraction):
             DimMessage(title: "Measuring \(phase)", text: fraction.map { "\(Int($0 * 100)) %" } ?? "Keep still")
         case .result(let verdict, let before, let after):
             Message(mark: verdict == .rejected ? .stale : .held, title: title(for: verdict),
                     text: verdict == .improved
-                        ? String(format: "ΔE00 %.1f → %.1f. Keep or discard it on your Mac.", before, after)
+                        ? "Review it on your Mac, then keep or discard it."
                         : verdict == .confirmed ? "Your display was already close to D65." : "See your Mac for the reason.") {
-                Button("OK") { model.dismissResult() }.buttonStyle(.bordered)
+                if verdict == .improved {
+                    HStack(spacing: 10) {
+                        Text(String(format: "%.1f", before)).foregroundStyle(.secondary)
+                        Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                        Text(String(format: "%.1f", after))
+                    }
+                    .font(.system(size: 34, weight: .semibold).monospacedDigit())
+                    .accessibilityLabel(String(format: "ΔE from %.1f to %.1f", before, after))
+                    Text("ΔE00 to D65").font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Done") { model.dismissResult() }.buttonStyle(.bordered).padding(.top, 4)
             }
         case .cancelled:
-            Message(mark: .none, title: "Session cancelled", text: "No session correction was kept. You can start again on your Mac.") {
-                Button("OK") { model.dismissResult() }.buttonStyle(.bordered)
+            Message(mark: .none, title: "Session cancelled", text: "Nothing was kept. Start again on your Mac when you’re ready.") {
+                Button("Done") { model.dismissResult() }.buttonStyle(.bordered)
             }
         case .measurementComplete:
-            Message(mark: .none, title: "Measurement complete", text: "See your Mac for the measurements. Session changes have been restored.") {
-                Button("OK") { model.dismissResult() }.buttonStyle(.bordered)
+            Message(mark: .none, title: "Measurement complete", text: "The readings are on your Mac. The display was restored.") {
+                Button("Done") { model.dismissResult() }.buttonStyle(.bordered)
             }
         case .refused(let text):
             Message(mark: .critical, title: "The Mac refused this probe", text: text)
         case .failed(let text):
             Message(mark: .stale, title: "Session stopped", text: text) {
-                Button("OK") { model.dismissResult() }.buttonStyle(.bordered)
+                Button("Done") { model.dismissResult() }.buttonStyle(.bordered)
             }
         }
-    }
-
-    private var hapticControls: some View {
-        VStack(spacing: 8) {
-            Picker("Haptics", selection: $model.hapticStrength) {
-                ForEach(ProbeHapticStrength.allCases, id: \.self) { strength in
-                    Text(strength.label).tag(strength)
-                }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("Haptic strength")
-            Button("Preview haptics") { model.previewHaptics() }
-                .font(.caption)
-                .disabled(model.hapticStrength == .off)
-        }
-    }
-
-    @ViewBuilder private func alignmentControls(dimmed: Bool) -> some View {
-        VStack(spacing: 8) {
-            if let reading = model.alignmentReading {
-                Text(reading.summary).font(.callout.monospacedDigit())
-                if reading.status == .estimate {
-                    Text("Surface estimate only. Watch your Mac while approaching the screen.").font(.caption)
-                }
-            }
-            if model.alignmentReading?.blocksColourSampling == true {
-                Button("Finish depth alignment") { model.finishAlignment() }
-                    .buttonStyle(.bordered)
-                    .disabled(model.alignmentReading?.status == .stopping || model.alignmentReading?.status == .cooldown)
-            } else {
-                Button("Use TrueDepth alignment") { model.startAlignment() }.buttonStyle(.bordered)
-                Text("Optional distance and tilt before contact. Colour sampling waits until the camera is off.")
-                    .font(.caption)
-            }
-        }
-        .foregroundStyle(dimmed ? Color(white: 0.28) : .secondary)
-        .accessibilityElement(children: .contain)
     }
 
     private func title(for verdict: CalibrationVerdict) -> String {
-        switch verdict { case .improved: "Done"; case .confirmed: "Already good"; case .rejected: "No change" }
+        switch verdict { case .improved: "Measured and corrected"; case .confirmed: "Already good"; case .rejected: "No change" }
     }
 
-    private var footer: some View {
-        HStack(spacing: 6) {
-            if model.isSimulated { Image(systemName: "exclamationmark.triangle") }
-            Text("\(model.sensorName) · protocol v\(Link.protocolVersion)")
-            if let y = model.lastReading, !faceDown { Text(String(format: "· Y %.0f", y)).monospacedDigit() }
+    private var simulatedWarning: some View {
+        Label("Simulated sensor: not a real measurement", systemImage: "exclamationmark.triangle")
+            .font(.caption).foregroundStyle(ProbeTheme.warn)
+    }
+}
+
+/// Connect, place, measure, then review on the Mac. Shown only while the screen faces the user.
+private struct StepStrip: View {
+    let current: Int
+    private let titles = ["Connect", "Place", "Measure", "Review on Mac"]
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(titles.indices, id: \.self) { index in
+                VStack(spacing: 6) {
+                    Circle()
+                        .fill(index <= current ? Color.primary : Color.clear)
+                        .overlay(Circle().strokeBorder(index <= current ? Color.clear : Color.secondary.opacity(0.5), lineWidth: 1.5))
+                        .frame(width: 9, height: 9)
+                    Text(titles[index])
+                        .font(.caption2.weight(index == current ? .semibold : .regular))
+                        .foregroundStyle(index == current ? .primary : .secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
         }
-        .font(.caption2)
-        .foregroundStyle(faceDown ? Color(white: 0.18) : (model.isSimulated ? ProbeTheme.warn : .secondary))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(current + 1) of 4, \(titles[current])")
+    }
+}
+
+/// The optional TrueDepth approach guide: distance and tilt before contact, never during sampling.
+private struct ApproachGuide: View {
+    @ObservedObject var model: ProbeModel
+    let dimmed: Bool
+    var body: some View {
+        VStack(spacing: 8) {
+            if let reading = model.alignmentReading { Text(reading.summary).font(.callout.monospacedDigit()) }
+            if model.alignmentReading?.blocksColourSampling == true {
+                Button("Turn off depth camera") { model.finishAlignment() }
+                    .buttonStyle(.bordered)
+                    .disabled(model.alignmentReading?.status == .stopping || model.alignmentReading?.status == .cooldown)
+            } else {
+                Button("Guide my approach") { model.startAlignment() }.buttonStyle(.bordered)
+            }
+        }
+        .foregroundStyle(dimmed ? Color(white: 0.28) : .secondary)
+    }
+}
+
+/// Everything that isn't the current instruction: haptics, the approach guide, and the sensor.
+private struct ProbeSettings: View {
+    @ObservedObject var model: ProbeModel
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Strength", selection: $model.hapticStrength) {
+                        ForEach(ProbeHapticStrength.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    Button("Feel the start cue") { model.previewHaptics() }.disabled(model.hapticStrength == .off)
+                } header: { Text("Haptics") } footer: {
+                    Text("Taps mark the connection, the start of measuring, each verification pass and the result. None play while a reading is being taken.")
+                }
+                Section {
+                    Toggle("TrueDepth approach guide", isOn: $model.approachGuide)
+                } header: { Text("Approach guide") } footer: {
+                    Text("Shows distance and tilt while you bring the phone to the screen. It doesn’t change the measurement, which is taken with the phone flat on the glass, so it’s off by default. The Mac waits for the depth camera to switch off before it samples.")
+                }
+                Section("Help") {
+                    Button("Show the guide") { model.showGuide() }
+                }
+                Section("Sensor") {
+                    LabeledContent("Source", value: model.sensorName)
+                    LabeledContent("Live reading", value: model.lastReading.map { String(format: "Y %.1f", $0) } ?? "–")
+                    LabeledContent("Protocol", value: "v\(Link.protocolVersion)")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
