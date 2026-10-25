@@ -17,6 +17,15 @@ struct D65ProbeApp: App {
                     if let index = arguments.firstIndex(of: "-showcase"), index + 1 < arguments.count {
                         model.showcase(arguments[index + 1]); return
                     }
+                    if arguments.contains("-hapticCheck") { model.hapticCheck(); return }
+                    if let index = arguments.firstIndex(of: "-record"), index + 2 < arguments.count,
+                       let seconds = Double(arguments[index + 1]) {
+                        DemoRecorder.start(seconds: seconds, name: arguments[index + 2])
+                    }
+                    if let index = arguments.firstIndex(of: "-demo") {
+                        let part = index + 1 < arguments.count ? arguments[index + 1] : ""
+                        model.startDemo(guide: part != "session", session: part != "guide"); return
+                    }
                     #endif
                     if ProbeModel.hasSeenGuide { model.start() } else { model.showingGuide = true }
                 }
@@ -25,6 +34,9 @@ struct D65ProbeApp: App {
                     if phase == .background { model.didEnterBackground() }
                 }
                 .onDisappear { model.stop() }
+                #if DEBUG
+                .preferredColorScheme(ProcessInfo.processInfo.arguments.contains("-light") ? .light : nil)
+                #endif
         }
     }
 }
@@ -63,7 +75,9 @@ struct ProbeView: View {
                 // A new state arrives with the discrete-change ease; progress inside a state doesn't re-run it.
                 content.frame(maxWidth: 340).padding(.horizontal, 28)
                     .id(phaseKey)
-                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 12)), removal: .opacity))
+                    // The old screen clears quickly so two messages never read on top of each other.
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 12)),
+                                            removal: .opacity.animation(reduceMotion ? nil : .easeOut(duration: 0.18))))
                 Spacer(minLength: 24)
                 if !faceDown {
                     StepStrip(current: step).padding(.horizontal, 28)
@@ -76,7 +90,7 @@ struct ProbeView: View {
         .tint(ProbeTheme.accent)
         .sheet(isPresented: $model.showingSettings) { ProbeSettings(model: model) }
         .fullScreenCover(isPresented: $model.showingGuide) {
-            OnboardingView(startPage: model.guideStartPage) { model.finishGuide() }
+            OnboardingView(startPage: model.guideStartPage, autoAdvance: model.autoAdvance) { model.finishGuide() }
         }
     }
 

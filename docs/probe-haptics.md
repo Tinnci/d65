@@ -1,8 +1,8 @@
 # Probe haptic language
 
 D65 Probe uses quiet, short transient cues to make its state understandable while the screen faces
-the monitor. **Subtle** is the default; **Clear** increases the relative intensities by 1.6×, and
-**Off** disables app-generated cues. The setting is saved on the phone. **Preview haptics** plays
+the monitor. **Subtle** is the default; **Clear** is stronger throughout, and
+**Off** disables app-generated cues. The setting is saved on the phone. **Feel the start cue** plays
 the gentle measurement-start pair so intensity can be checked before placement. Native controls
 retain their platform behavior; the app does not add a second custom tick to its strength picker.
 
@@ -24,7 +24,7 @@ calibration.
 | Depth aid finished | small handover tap | after camera shutdown/ALS cooldown, not proof of contact |
 | Unreliable/unavailable depth | muted attention tick | sustained missing depth, not every camera frame |
 | Measurement starts | gentle rising pair | only at the first patch's settling boundary |
-| Next patch | minute tick | once per unique patch request, during settling only |
+| Next patch | silent | the user can't act on it, and each tap nudges a phone lying on the glass |
 | White verification pass | tiny pair | at the verification request's settling boundary |
 | Improved result | soft completion pair | one terminal cue per session |
 | Already within tolerance | even light pair | distinct from improvement and rejection |
@@ -62,9 +62,12 @@ Check enabled-versus-disabled white readings on hardware before treating the eff
 
 ## Playback lifecycle
 
-Core Haptics patterns contain transient haptic events only, with no audio. Default relative pulse
-intensities range from 0.045 to 0.16, with low sharpness; Clear remains below 0.26. These numbers are
-API parameters, not calibrated physical forces or a guarantee of perceived strength. Patterns last
+Core Haptics patterns contain transient haptic events only, with no audio. Each cue has a relative
+weight (0.04–0.16) that each strength maps onto what the Taptic Engine renders: Subtle is
+0.25 + 1.6 × weight (about 0.32–0.51), Clear is 0.45 + 2.6 × weight (about 0.56–0.87), with sharpness
+0.4–0.54 so short taps stay crisp. The first tuning used the weights directly (0.045–0.16) and was
+not felt on an iPhone Air: transients below about 0.25 are lost against a hand or a desk.
+These numbers are API parameters, not calibrated physical forces. Patterns last
 at most 300 ms including the fallback tail. A global 350 ms separation prevents crowded cues,
 ordinary repeated cue types have a 1.5 s cooldown, and terminal outcomes are deduplicated until a
 new placement. Automatic busy/refused/reconnect loops do not keep buzzing.
@@ -92,3 +95,16 @@ still require an iPhone check; Simulator cannot validate tactile strength.
 Design reference: Apple's [Playing haptics](https://developer.apple.com/design/human-interface-guidelines/playing-haptics)
 recommends short, meaningful, optional feedback and considering interference with cameras and motion
 sensors. Implementation reference: [CHHapticEngine](https://developer.apple.com/documentation/corehaptics/chhapticengine).
+
+## Diagnostics
+
+Every cue is logged under subsystem `dev.tinnci.d65.probe`, category `haptics`: what played and at
+what intensities, why a cue was held back (strength off, app inactive, another cue playing, rate
+limit or an open sample window), and Core Haptics failures, engine resets and stops. Debug builds
+also print these lines, so a cable-connected phone shows them with:
+
+```
+xcrun devicectl device process launch --console --device <udid> dev.tinnci.d65.probe -- -hapticCheck
+```
+
+`-hapticCheck` plays the start cue at Subtle, then Clear, two seconds apart.

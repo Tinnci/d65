@@ -368,9 +368,11 @@ struct ReadyFigure: View {
 
 struct OnboardingView: View {
     var onFinish: () -> Void
+    var autoAdvance: Double?
     @State private var page: Int
-    init(startPage: Int = 0, onFinish: @escaping () -> Void) {
+    init(startPage: Int = 0, autoAdvance: Double? = nil, onFinish: @escaping () -> Void) {
         self.onFinish = onFinish
+        self.autoAdvance = autoAdvance
         _page = State(initialValue: startPage)
     }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -429,6 +431,12 @@ struct OnboardingView: View {
             .padding(.horizontal, 32).padding(.bottom, 24)
         }
         .tint(ProbeTheme.accent)
+        .task(id: page) {
+            guard let autoAdvance else { return }
+            try? await Task.sleep(for: .seconds(autoAdvance))
+            guard !Task.isCancelled else { return }
+            if page < pages.count - 1 { page += 1 } else { onFinish() }
+        }
     }
 
     @ViewBuilder private func figure(_ index: Int) -> some View {

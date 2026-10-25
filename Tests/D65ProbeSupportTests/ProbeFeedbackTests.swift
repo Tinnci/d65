@@ -3,19 +3,21 @@ import D65ProbeSupport
 import XCTest
 
 final class ProbeFeedbackTests: XCTestCase {
-    func testPatternsStayShortAndLowIntensityAtBothEnabledStrengths() {
+    func testPatternsStayShortAndPerceptibleAtBothEnabledStrengths() {
         for cue in ProbeHapticCue.allCases {
             for strength in [ProbeHapticStrength.subtle, .clear] {
                 let plan = cue.plan(strength: strength)
                 XCTAssertFalse(plan.pulses.isEmpty)
                 XCTAssertLessThanOrEqual(plan.duration, 0.31)
                 for pulse in plan.pulses {
-                    XCTAssertGreaterThan(pulse.intensity, 0)
-                    XCTAssertLessThanOrEqual(pulse.intensity, 0.26)
-                    XCTAssertTrue((0...0.30).contains(pulse.sharpness))
+                    XCTAssertGreaterThanOrEqual(pulse.intensity, 0.3, "\(cue) would be lost on the hardware")
+                    XCTAssertLessThanOrEqual(pulse.intensity, 0.9)
+                    XCTAssertTrue((0.3...0.6).contains(pulse.sharpness))
                 }
             }
         }
+        XCTAssertGreaterThan(ProbeHapticCue.measurementStarted.plan(strength: .clear).pulses[0].intensity,
+                             ProbeHapticCue.measurementStarted.plan(strength: .subtle).pulses[0].intensity)
         XCTAssertNotEqual(ProbeHapticCue.success.plan(strength: .subtle).pulses,
                           ProbeHapticCue.failure.plan(strength: .subtle).pulses)
     }

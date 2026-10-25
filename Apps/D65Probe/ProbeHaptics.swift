@@ -2,7 +2,18 @@ import CoreHaptics
 import D65Measurement
 import D65ProbeSupport
 import Foundation
+import os
 import UIKit
+
+/// Haptic diagnostics under dev.tinnci.d65.probe / haptics. Debug builds mirror them to stdout so
+/// `devicectl device process launch --console` shows why a cue was or wasn't felt.
+private let hapticLog = Logger(subsystem: "dev.tinnci.d65.probe", category: "haptics")
+private func note(_ message: String, error: Bool = false) {
+    if error { hapticLog.error("\(message, privacy: .public)") } else { hapticLog.debug("\(message, privacy: .public)") }
+    #if DEBUG
+    print("[haptics] \(message)")
+    #endif
+}
 
 /// UIKit/Core Haptics adapter. The pure policy decides timing; playback completion releases sampling.
 @MainActor final class ProbeHaptics {
@@ -36,7 +47,13 @@ import UIKit
     }
     func play(_ cue: ProbeHapticCue) {
         if cue.isTerminal { cancelPlayback() }
-        if let plan = policy.request(cue, at: now) { render(plan) }
+        if let plan = policy.request(cue, at: now) { render(plan) } else { note("held back \(cue): \(heldBackReason)") }
+    }
+    private var heldBackReason: String {
+        if policy.strength == .off { return "strength off" }
+        if !policy.active { return "app inactive" }
+        if policy.playbackInFlight { return "another cue playing" }
+        return "rate limit, open sample window or duplicate"
     }
     func connectionOpened() {
         guard !hasConnected else { return }
@@ -101,7 +118,9 @@ import UIKit
                 Task { @MainActor in self?.finished(token) }
             }
             try player.start(atTime: CHHapticTimeImmediate)
+            note("played \(plan.cue) " + plan.pulses.map { String(format: "%.2f", $0.intensity) }.joined(separator: "/"))
         } catch {
+            note("Core Haptics failed for \(plan.cue) (\(error)); using UIKit fallback", error: true)
             player = nil
             // UIKit fallback retains the quiet timings and mild intensity instead of a full alert.
             fallback.prepare()
@@ -137,17 +156,22 @@ import UIKit
     }
     private func hapticEngine() throws -> CHHapticEngine {
         if let engine { return engine }
-        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { throw HapticError.unsupported }
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else {
+            note("this device reports no haptics support", error: true)
+            throw HapticError.unsupported
+        }
         let engine = try CHHapticEngine()
         engine.playsHapticsOnly = true
         engine.isAutoShutdownEnabled = true
         engine.resetHandler = { [weak self, weak engine] in
+            note("engine reset by the system")
             Task { @MainActor in
                 guard let self, let engine, self.engine === engine else { return }
                 self.cancelPlayback(); self.engine = nil
             }
         }
-        engine.stoppedHandler = { [weak self, weak engine] _ in
+        engine.stoppedHandler = { [weak self, weak engine] reason in
+            note("engine stopped (reason \(reason.rawValue))")
             Task { @MainActor in
                 guard let self, let engine, self.engine === engine else { return }
                 self.cancelPlayback()

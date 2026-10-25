@@ -6,7 +6,15 @@ public enum ProbeHapticStrength: String, CaseIterable, Sendable {
     public var label: String {
         switch self { case .off: "Off"; case .subtle: "Subtle"; case .clear: "Clear" }
     }
-    var multiplier: Double { self == .off ? 0 : (self == .subtle ? 1 : 1.6) }
+    /// Maps a cue's relative weight (0.04–0.16) onto intensities a Taptic Engine actually renders:
+    /// transients below about 0.25 are lost against a hand or a desk, which made the first tuning silent.
+    func intensity(_ weight: Double) -> Double {
+        switch self {
+        case .off: 0
+        case .subtle: 0.25 + 1.6 * weight
+        case .clear: 0.45 + 2.6 * weight
+        }
+    }
 }
 
 /// Discrete events, not a continuous distance/motion signal.
@@ -43,7 +51,8 @@ public enum ProbeHapticCue: Sendable, Hashable, CaseIterable {
         case .selection: values = [(0, 0.055, 0.18)]
         }
         return ProbeHapticPlan(cue: self, pulses: values.map {
-            .init(time: $0.0, intensity: $0.1 * strength.multiplier, sharpness: $0.2)
+            // A little sharpness keeps short taps crisp instead of a dull thud.
+            .init(time: $0.0, intensity: strength.intensity($0.1), sharpness: 0.3 + 0.8 * $0.2)
         })
     }
 }

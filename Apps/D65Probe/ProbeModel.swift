@@ -46,9 +46,21 @@ import UIKit
 
     /// The link starts only after the guide, so the Local Network prompt follows its explanation.
     func finishGuide() {
+        #if DEBUG
+        if demo { showingGuide = false; runDemoSession(); return }
+        #endif
         Self.hasSeenGuide = true
         showingGuide = false
         start()
+    }
+
+    /// Seconds per guide page when the guide pages itself; only the Debug demo sets it.
+    var autoAdvance: Double? {
+        #if DEBUG
+        demo ? 3.4 : nil
+        #else
+        nil
+        #endif
     }
 
     func showGuide() {
@@ -175,6 +187,43 @@ import UIKit
     }
 
     #if DEBUG
+    /// Plays the start cue at each strength, two seconds apart, logging each to the console.
+    func hapticCheck() {
+        let saved = hapticStrength
+        Task { @MainActor in
+            for strength in [ProbeHapticStrength.subtle, .clear] {
+                hapticStrength = strength
+                try? await Task.sleep(for: .seconds(2))
+                previewHaptics()
+            }
+            try? await Task.sleep(for: .seconds(1))
+            hapticStrength = saved
+        }
+    }
+
+    /// A scripted walk for README recordings (`-demo [guide|session]`): the guide pages itself, then a
+    /// session runs through its screens on fixed timings. No sensor, link or gamma table is touched.
+    private(set) var demo = false
+    private var demoSession = true
+    func startDemo(guide: Bool, session: Bool) {
+        demo = true; demoSession = session; guideStartPage = 0; phase = .searching
+        if guide { showingGuide = true } else { runDemoSession() }
+    }
+    private func runDemoSession() {
+        guard demoSession else { return }
+        Task { @MainActor in
+            func hold(_ seconds: Double) async { try? await Task.sleep(for: .seconds(seconds)) }
+            phase = .searching; await hold(3.4)
+            phase = .ready; await hold(2)
+            phase = .placing; await hold(2.4)
+            let patches = ["black", "white", "red", "green", "blue", "grey 1", "grey 2", "grey 3", "grey 4", "pass 1", "pass 2", "pass 3"]
+            for (index, name) in patches.enumerated() {
+                phase = .measuring(phase: name, fraction: Double(index + 1) / Double(patches.count)); await hold(0.32)
+            }
+            phase = .result(verdict: .improved, before: 4.18, after: 1.69)
+        }
+    }
+
     /// Debug-only screenshot states: launch with `-showcase <searching|ready|placing|measuring|result|settings>`.
     func showcase(_ name: String) {
         switch name {
