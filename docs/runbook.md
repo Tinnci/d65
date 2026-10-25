@@ -10,14 +10,20 @@ the measurements. Keeping a correction is a separate action in the Mac app.
    rate fixed throughout the session. Use a dark room; the verified run had black/ambient Y=1.29.
 2. Pair and unlock the iPhone, enable Developer Mode as required by Xcode, and use the same local
    network as the Mac. Allow the probe's Local Network and Motion permissions when prompted.
-3. Confirm that `local/probe-sensor/` exists and holds the ALS sources: `D65LocalSensor.swift` plus
-   `Experiment.swift`, `IOHIDShim.swift` and `MotionGate.swift` (symlinks into `local/als-probe/ALSProbe`
-   work). `project.yml` lists only the directory, so a clone without it still builds.
-   The factory must return a `ProbeSensor`. These files are deliberately ignored, not supplied by a
-   clean clone. Without a local factory, a physical-device build reports no sensor; a Simulator
-   build uses a labelled simulation and cannot validate display colour.
+3. The ambient-light reader is part of the probe (`Apps/D65Probe/AmbientLightSensor.swift`). A
+   Simulator build uses a labelled simulation instead and cannot validate display colour. To
+   confirm the sensor on a device, launch a Debug build with `-sensorCheck`: it prints which event
+   types reach the app without and with the reader's matching filter (with it, only type 12).
 4. Run only one host: either the Mac app's calibration service or `d65 serve`. A second host on
    port 50515 cannot listen; a second probe connection is refused while another holds the lease.
+
+## Install the probe from a release
+
+Each release carries `D65Probe-<version>-unsigned.ipa`. It is unsigned on purpose: the probe uses
+private IOHID calls, so it can't go through Apple, and a signed IPA would carry the signer's
+provisioning profile (team, certificate name, device UDIDs). Sign it with your own Apple ID using a
+sideloading tool such as Sideloadly or AltStore, and enable Developer Mode on the phone when iOS
+asks. A free Apple ID signature expires after seven days; re-sign to continue.
 
 ## Build and install the physical probe
 

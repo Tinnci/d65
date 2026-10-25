@@ -41,8 +41,7 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
-      # Unsigned builds catch app-only compile errors. The probe builds without the private sensor
-      # sources (they live in the git-ignored local/), exactly as a clean clone does.
+      # Unsigned builds catch app-only compile errors.
       - name: Build D65Mac
         run: xcodebuild -project D65.xcodeproj -scheme D65Mac -configuration Debug -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO build
 

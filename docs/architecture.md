@@ -16,10 +16,10 @@ owns the workflow used by the CLI and Mac app. Platform and transport adapters s
 | D65MacRuntime | selected display, patch window, network probe and service | Calibration, Link, Display |
 | d65 / D65Mac | command/UI configuration and presentation of results | libraries above |
 
-The private ALS acquisition experiment remains in the ignored `local/als-probe` directory. Its
-network client is shared from `Apps/D65Probe/LinkClient.swift`. The tracked probe UI discovers a
-locally injected sensor factory, a labelled Simulator source, or reports no sensor. Optional local
-sources in `project.yml` let the real D65Probe build include the private ALS adapter. The probe
+The probe reads the ambient-light sensor through a private IOHID monitor client, restricted by
+service matching to the built-in light sensor (`Apps/D65Probe/AmbientLightSensor.swift`); in the
+Simulator it uses a labelled simulated source. The original acquisition experiment stays in the
+ignored `local/als-probe` directory and shares its network client from `Apps/D65Probe/LinkClient.swift`. The probe
 never solves a correction.
 
 ## Session ownership

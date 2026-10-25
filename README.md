@@ -107,8 +107,9 @@ display is touched.</sub>
 ## Limits worth knowing first
 
 - **Sideload only.** The probe reads the ambient-light sensor through private IOHID calls, so it
-  can't ship on the App Store. That reader stays out of this repository (`local/`, git-ignored); a
-  clean clone builds a probe that says it has no sensor, or a labelled simulation in the Simulator.
+  can't ship on the App Store. Releases carry an unsigned IPA that you sign with your own Apple ID,
+  or build it from source. The reader asks IOHID for the light-sensor service only, so the app never
+  receives touch, button or other sensor events.
 - **One panel so far.** Behaviour on other monitors, connections and HDR is unknown. A
   [monitor report](.github/ISSUE_TEMPLATE/monitor-report.md) helps most.
 - **Software correction.** The gamma table only applies while D65 runs, and macOS reverts it when
@@ -217,11 +218,10 @@ They need Xcode 16 or later.
   phone is placed on a life-size outline, measuring starts when its readings settle, and Review
   previews the result on the real display before you keep or discard it. Esc always cancels, and
   quitting restores every display.
-- **D65Probe** is the iPhone side, speaking protocol v4. The tracked app contains no private sensor
-  code: in the iOS Simulator it uses a clearly labelled simulated sensor, and on a device it uses the
-  private ALS reader only when `local/probe-sensor/` exists; `project.yml` lists that directory, so a clean
-  clone still builds.
-  Without it the app says that no sensor is available. Optional **Use TrueDepth alignment** gives
+- **D65Probe** is the iPhone side, speaking protocol v4. On a device it reads the ambient-light
+  sensor through a private IOHID monitor client restricted to that one service
+  (`Apps/D65Probe/AmbientLightSensor.swift`); in the iOS Simulator it uses a clearly labelled
+  simulated sensor. Optional **Use TrueDepth alignment** gives
   advisory distance/tilt before contact, visible on the Mac too. Colour sampling waits for the depth
   camera to stop; unsupported/denied capture falls back to the outline. See the
   [alignment notes](docs/truedepth-alignment.md). Its [haptic cues](docs/probe-haptics.md) cover

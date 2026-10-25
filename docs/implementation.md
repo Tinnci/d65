@@ -111,8 +111,10 @@ brightness on completion, failure, explicit stop or disconnect.
 
 The ignored experiment project compiles the shared client from `Apps/D65Probe/LinkClient.swift`,
 so it speaks v4 after a rebuild. `D65Probe` finds a sensor through `SensorRegistry`: the class
-`D65LocalSensorFactory` (compiled from `local/probe-sensor/` when that directory exists), else a
-labelled simulated sensor in the iOS Simulator, else none.
+`AmbientLightSensor` on a device, a labelled simulated sensor in the iOS Simulator. The reader's
+monitor client is given a matching dictionary (usage page 0xFF00, usage 4, built-in) before its
+callback is registered; on an iPhone Air that cut the delivered events from types 1, 12, 15 and 21 to
+type 12 alone, at the same ~4 Hz.
 
 ## Probe haptics
 

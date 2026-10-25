@@ -16,13 +16,16 @@ struct D65ProbeApp: App {
                     let arguments = ProcessInfo.processInfo.arguments
                     // Showcase, demo, recording and haptic-check runs never call start(), which is what
                     // normally holds the screen on; keep it on so a capture or test isn't cut by auto-lock.
-                    if arguments.contains(where: { ["-showcase", "-demo", "-record", "-hapticCheck"].contains($0) }) {
+                    if arguments.contains(where: { ["-showcase", "-demo", "-record", "-hapticCheck", "-sensorCheck"].contains($0) }) {
                         UIApplication.shared.isIdleTimerDisabled = true
                     }
                     if let index = arguments.firstIndex(of: "-showcase"), index + 1 < arguments.count {
                         model.showcase(arguments[index + 1]); return
                     }
                     if arguments.contains("-hapticCheck") { model.hapticCheck(); return }
+                    #if !targetEnvironment(simulator)
+                    if arguments.contains("-sensorCheck") { SensorCheck.run(); return }
+                    #endif
                     if let index = arguments.firstIndex(of: "-record"), index + 2 < arguments.count,
                        let seconds = Double(arguments[index + 1]) {
                         DemoRecorder.start(seconds: seconds, name: arguments[index + 2])

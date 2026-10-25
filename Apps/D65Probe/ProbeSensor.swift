@@ -3,8 +3,7 @@ import D65Core
 import D65Measurement
 import Foundation
 
-/// A source of light readings. The shipping repository contains no private sensor code; a local build
-/// can provide one by compiling a class named `D65LocalSensorFactory` (see local/als-probe).
+/// A source of light readings: the ambient-light sensor on a device, a labelled fake in the Simulator.
 @MainActor protocol ProbeSensor: AnyObject {
     var name: String { get }
     var isSimulated: Bool { get }
@@ -12,21 +11,12 @@ import Foundation
     func stop()
 }
 
-@objc(D65SensorFactory) protocol SensorFactory: NSObjectProtocol {
-    @MainActor static func makeSensor() -> AnyObject?
-}
-
 @MainActor enum SensorRegistry {
-    /// The local private-ALS sensor when it was compiled in, the simulator's fake, otherwise nothing.
     static func make() -> ProbeSensor? {
-        if let factory = NSClassFromString("D65LocalSensorFactory") as? SensorFactory.Type,
-           let sensor = factory.makeSensor() as? ProbeSensor {
-            return sensor
-        }
         #if targetEnvironment(simulator)
-        return SimulatedSensor()
+        SimulatedSensor()
         #else
-        return nil
+        AmbientLightSensor()
         #endif
     }
 }

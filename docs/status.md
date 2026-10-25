@@ -62,7 +62,7 @@ is still pending. See [alignment notes](truedepth-alignment.md).
 | ~~One pass does not land on target~~ | fixed: `scaledLinear` compensates display gamma, then the loop iterates | 18.75 → 2.36 ΔE00 in two passes |
 | Blue/cyan unmeasurable in daylight | ambient Y ≈ 14 vs blue Y ≈ 10 | primaries incomplete unless the room is dark |
 | Cross-session repeatability | phone is hand-held | ±1200 K between sessions; in-session verification is the workaround |
-| App Store distribution | private IOHID and IOAVService | sideload only, 7-day signing |
+| App Store distribution | private IOHID and IOAVService | sideload only: an unsigned IPA per release, 7-day signing on a free Apple ID |
 
 ## Open questions
 
