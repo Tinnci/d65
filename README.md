@@ -48,6 +48,17 @@ predicted  x=0.3127 y=0.3290  CCT≈6508 K
 `swift test` additionally requires a full Xcode installation, because XCTest is not shipped with
 the Command Line Tools. CI runs both.
 
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/status.md](docs/status.md) | what works, what does not, next steps |
+| [docs/implementation.md](docs/implementation.md) | modules, CLI, wire protocol |
+| [docs/experiments.md](docs/experiments.md) | every measurement, with numbers |
+| [docs/hardware.md](docs/hardware.md) | display, DDC matrix, gamma behaviour |
+| [docs/architecture.md](docs/architecture.md) | why the code is split this way |
+| [docs/research/](docs/research/) | Apple's Color Balance and the ALS path |
+
 ## Layout
 
 ```
@@ -58,8 +69,12 @@ Sources/D65Display       display output abstraction and mode key
 Sources/d65              CLI: selftest, gains, cct, verify
 Apps/D65Mac              macOS app shell (SwiftUI)
 Apps/D65Probe            iPhone probe shell (SwiftUI)
+docs/status.md           what works, what does not, next steps
+docs/implementation.md   modules, CLI reference, wire protocol
+docs/experiments.md      every measurement, with numbers
+docs/hardware.md         display, DDC capability matrix, gamma behaviour
 docs/architecture.md     module boundaries and data flow
-docs/research/           what Apple's Color Balance does, and how it reads the ALS
+docs/research/           Apple's Color Balance, and how the ALS is read
 project.yml              XcodeGen spec for the two apps
 ```
 
