@@ -335,7 +335,7 @@ correction. Raw tagged attempts, measurements, gains, lifecycle and outcome are 
 
 ## 14. GUI flow on hardware
 
-Revision `3da5340`, 2026-10-25. D65Mac (menu-bar agent, signed for team `CH93QYRTNG`, built from
+Revision `3da5340`, 2026-10-25. D65Mac (menu-bar agent, signed with a personal development team, built from
 `.build/xcode-signed`) and D65 Probe on the iPhone Air (`iPhone18,4`, iOS 27.2, with the local ALS
 adapter), K27 at 3840×2160 / 60 Hz over USB-C, display ID 1. No corrections were stored before
 the run (`~/Library/Application Support/D65` did not exist), and the earlier `d65 serve` was

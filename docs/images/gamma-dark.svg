@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="470" viewBox="0 0 760 470" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" style="font-variant-numeric: tabular-nums">
+<title id="t">Panel response fitted from a grey ramp</title><desc id="d">Relative luminance of 20, 40, 60 and 80 percent grey patches. Least-squares fit gamma 2.11 (app session) and 2.11 (CLI session); the assumed 2.2 is shown for comparison.</desc>
+<rect width="760" height="470" rx="8" fill="#0d1117"/>
+<text x="24.0" y="34.0" font-size="15" fill="#e8e8e8" text-anchor="start" font-weight="600" >Four grey patches pin the panel’s response: γ ≈ 2.11, not the assumed 2.2</text>
+<text x="24.0" y="54.0" font-size="12" fill="#a8a8a8" text-anchor="start" font-weight="400" >Emitted luminance relative to white, ambient subtracted · the fit feeds the gamma-table correction</text>
+<line x1="76.0" y1="92.0" x2="76.0" y2="392.0" stroke="#262626" stroke-width="1"/>
+<text x="76.0" y="410.0" font-size="11" fill="#7a7a7a" text-anchor="middle" font-weight="400" >0 %</text>
+<line x1="200.0" y1="92.0" x2="200.0" y2="392.0" stroke="#262626" stroke-width="1"/>
+<text x="200.0" y="410.0" font-size="11" fill="#7a7a7a" text-anchor="middle" font-weight="400" >20 %</text>
+<line x1="324.0" y1="92.0" x2="324.0" y2="392.0" stroke="#262626" stroke-width="1"/>
+<text x="324.0" y="410.0" font-size="11" fill="#7a7a7a" text-anchor="middle" font-weight="400" >40 %</text>
+<line x1="448.0" y1="92.0" x2="448.0" y2="392.0" stroke="#262626" stroke-width="1"/>
+<text x="448.0" y="410.0" font-size="11" fill="#7a7a7a" text-anchor="middle" font-weight="400" >60 %</text>
+<line x1="572.0" y1="92.0" x2="572.0" y2="392.0" stroke="#262626" stroke-width="1"/>
+<text x="572.0" y="410.0" font-size="11" fill="#7a7a7a" text-anchor="middle" font-weight="400" >80 %</text>
+<line x1="696.0" y1="92.0" x2="696.0" y2="392.0" stroke="#262626" stroke-width="1"/>
+<text x="696.0" y="410.0" font-size="11" fill="#7a7a7a" text-anchor="middle" font-weight="400" >100 %</text>
+<line x1="76.0" y1="392.0" x2="696.0" y2="392.0" stroke="#262626" stroke-width="1"/>
+<text x="68.0" y="396.0" font-size="11" fill="#7a7a7a" text-anchor="end" font-weight="400" >0.0</text>
+<line x1="76.0" y1="332.0" x2="696.0" y2="332.0" stroke="#262626" stroke-width="1"/>
+<text x="68.0" y="336.0" font-size="11" fill="#7a7a7a" text-anchor="end" font-weight="400" >0.2</text>
+<line x1="76.0" y1="272.0" x2="696.0" y2="272.0" stroke="#262626" stroke-width="1"/>
+<text x="68.0" y="276.0" font-size="11" fill="#7a7a7a" text-anchor="end" font-weight="400" >0.4</text>
+<line x1="76.0" y1="212.0" x2="696.0" y2="212.0" stroke="#262626" stroke-width="1"/>
+<text x="68.0" y="216.0" font-size="11" fill="#7a7a7a" text-anchor="end" font-weight="400" >0.6</text>
+<line x1="76.0" y1="152.0" x2="696.0" y2="152.0" stroke="#262626" stroke-width="1"/>
+<text x="68.0" y="156.0" font-size="11" fill="#7a7a7a" text-anchor="end" font-weight="400" >0.8</text>
+<line x1="76.0" y1="92.0" x2="696.0" y2="92.0" stroke="#262626" stroke-width="1"/>
+<text x="68.0" y="96.0" font-size="11" fill="#7a7a7a" text-anchor="end" font-weight="400" >1.0</text>
+<line x1="76.0" y1="392.0" x2="696.0" y2="392.0" stroke="#3d3d3d" stroke-width="1"/>
+<line x1="76.0" y1="92.0" x2="76.0" y2="392.0" stroke="#3d3d3d" stroke-width="1"/>
+<text x="696.0" y="428.0" font-size="11" fill="#7a7a7a" text-anchor="end" font-weight="400" >input level (sRGB grey)</text>
+<text x="76.0" y="82.0" font-size="11" fill="#7a7a7a" text-anchor="start" font-weight="400" >relative luminance</text>
+<path d="M76.0 392.0 L82.2 392.0 L88.4 391.9 L94.6 391.9 L100.8 391.7 L107.0 391.6 L113.2 391.4 L119.4 391.1 L125.6 390.8 L131.8 390.5 L138.0 390.1 L144.2 389.7 L150.4 389.2 L156.6 388.6 L162.8 388.0 L169.0 387.4 L175.2 386.7 L181.4 385.9 L187.6 385.1 L193.8 384.2 L200.0 383.3 L206.2 382.3 L212.4 381.3 L218.6 380.2 L224.8 379.0 L231.0 377.8 L237.2 376.5 L243.4 375.2 L249.6 373.8 L255.8 372.3 L262.0 370.8 L268.2 369.2 L274.4 367.5 L280.6 365.8 L286.8 364.1 L293.0 362.2 L299.2 360.3 L305.4 358.3 L311.6 356.3 L317.8 354.2 L324.0 352.0 L330.2 349.8 L336.4 347.5 L342.6 345.1 L348.8 342.7 L355.0 340.2 L361.2 337.7 L367.4 335.0 L373.6 332.3 L379.8 329.5 L386.0 326.7 L392.2 323.8 L398.4 320.8 L404.6 317.8 L410.8 314.7 L417.0 311.5 L423.2 308.2 L429.4 304.9 L435.6 301.5 L441.8 298.0 L448.0 294.5 L454.2 290.9 L460.4 287.2 L466.6 283.4 L472.8 279.6 L479.0 275.7 L485.2 271.7 L491.4 267.7 L497.6 263.6 L503.8 259.4 L510.0 255.1 L516.2 250.8 L522.4 246.4 L528.6 241.9 L534.8 237.3 L541.0 232.7 L547.2 228.0 L553.4 223.2 L559.6 218.3 L565.8 213.4 L572.0 208.4 L578.2 203.3 L584.4 198.1 L590.6 192.9 L596.8 187.6 L603.0 182.2 L609.2 176.7 L615.4 171.2 L621.6 165.5 L627.8 159.8 L634.0 154.1 L640.2 148.2 L646.4 142.3 L652.6 136.3 L658.8 130.2 L665.0 124.0 L671.2 117.8 L677.4 111.4 L683.6 105.0 L689.8 98.6 L696.0 92.0" fill="none" stroke="#7a7a7a" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 4"/>
+<text x="485.2" y="293.7" font-size="10.5" fill="#7a7a7a" text-anchor="start" font-weight="400" >assumed γ 2.2</text>
+<path d="M76.0 392.0 L82.2 392.0 L88.4 391.9 L94.6 391.8 L100.8 391.7 L107.0 391.5 L113.2 391.2 L119.4 390.9 L125.6 390.5 L131.8 390.1 L138.0 389.7 L144.2 389.1 L150.4 388.6 L156.6 387.9 L162.8 387.2 L169.0 386.5 L175.2 385.7 L181.4 384.8 L187.6 383.9 L193.8 382.9 L200.0 381.9 L206.2 380.8 L212.4 379.7 L218.6 378.5 L224.8 377.2 L231.0 375.9 L237.2 374.5 L243.4 373.0 L249.6 371.5 L255.8 369.9 L262.0 368.3 L268.2 366.6 L274.4 364.8 L280.6 363.0 L286.8 361.1 L293.0 359.2 L299.2 357.2 L305.4 355.1 L311.6 353.0 L317.8 350.8 L324.0 348.5 L330.2 346.2 L336.4 343.8 L342.6 341.3 L348.8 338.8 L355.0 336.3 L361.2 333.6 L367.4 330.9 L373.6 328.1 L379.8 325.3 L386.0 322.4 L392.2 319.4 L398.4 316.4 L404.6 313.3 L410.8 310.1 L417.0 306.9 L423.2 303.6 L429.4 300.3 L435.6 296.8 L441.8 293.3 L448.0 289.8 L454.2 286.2 L460.4 282.5 L466.6 278.7 L472.8 274.9 L479.0 271.0 L485.2 267.0 L491.4 263.0 L497.6 258.9 L503.8 254.8 L510.0 250.5 L516.2 246.2 L522.4 241.9 L528.6 237.5 L534.8 233.0 L541.0 228.4 L547.2 223.8 L553.4 219.1 L559.6 214.3 L565.8 209.5 L572.0 204.6 L578.2 199.6 L584.4 194.5 L590.6 189.4 L596.8 184.3 L603.0 179.0 L609.2 173.7 L615.4 168.3 L621.6 162.9 L627.8 157.3 L634.0 151.7 L640.2 146.1 L646.4 140.4 L652.6 134.6 L658.8 128.7 L665.0 122.7 L671.2 116.7 L677.4 110.7 L683.6 104.5 L689.8 98.3 L696.0 92.0" fill="none" stroke="#4f88dc" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="398.4" y="304.4" font-size="11.5" fill="#e8e8e8" text-anchor="end" font-weight="400" >fitted γ 2.108 / 2.114</text>
+<circle cx="200.0" cy="381.8" r="9" fill="#0d1117"/>
+<circle cx="200.0" cy="381.8" r="6" fill="#0d1117" stroke="#cf7430" stroke-width="2"/>
+<circle cx="324.0" cy="349.4" r="9" fill="#0d1117"/>
+<circle cx="324.0" cy="349.4" r="6" fill="#0d1117" stroke="#cf7430" stroke-width="2"/>
+<circle cx="448.0" cy="293.1" r="9" fill="#0d1117"/>
+<circle cx="448.0" cy="293.1" r="6" fill="#0d1117" stroke="#cf7430" stroke-width="2"/>
+<circle cx="572.0" cy="207.6" r="9" fill="#0d1117"/>
+<circle cx="572.0" cy="207.6" r="6" fill="#0d1117" stroke="#cf7430" stroke-width="2"/>
+<circle cx="200.0" cy="381.7" r="5.5" fill="#0d1117"/>
+<circle cx="200.0" cy="381.7" r="3.5" fill="#4f88dc"/>
+<circle cx="324.0" cy="349.3" r="5.5" fill="#0d1117"/>
+<circle cx="324.0" cy="349.3" r="3.5" fill="#4f88dc"/>
+<circle cx="448.0" cy="293.3" r="5.5" fill="#0d1117"/>
+<circle cx="448.0" cy="293.3" r="3.5" fill="#4f88dc"/>
+<circle cx="572.0" cy="207.1" r="5.5" fill="#0d1117"/>
+<circle cx="572.0" cy="207.1" r="3.5" fill="#4f88dc"/>
+<circle cx="81.0" cy="444.0" r="6" fill="#0d1117"/>
+<circle cx="81.0" cy="444.0" r="4" fill="#4f88dc"/>
+<text x="92.0" y="448.0" font-size="12" fill="#a8a8a8" text-anchor="start" font-weight="400" >§14 · Mac app greys</text>
+<circle cx="230.4" cy="444.0" r="6" fill="#0d1117"/>
+<circle cx="230.4" cy="444.0" r="3" fill="#0d1117" stroke="#cf7430" stroke-width="2"/>
+<text x="241.4" y="448.0" font-size="12" fill="#a8a8a8" text-anchor="start" font-weight="400" >§13 · CLI greys</text>
+<text x="736.0" y="448.0" font-size="11" fill="#7a7a7a" text-anchor="end" font-weight="400" >Two placements, points overlap within 0.002</text>
+</svg>

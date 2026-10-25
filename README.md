@@ -1,15 +1,69 @@
-# D65
+<p align="center">
+  <img src="Apps/D65Mac/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="112" height="112" alt="D65 icon: a ring with a held dot on a short arc of the Planckian locus">
+</p>
 
-White-point balance for external displays, measured with an iPhone as a probe.
+<h1 align="center">D65</h1>
 
-D65 is not a colourimeter replacement and not an ICC profiling tool. It does one thing: measure a
-display's white, solve for three per-channel gains, and apply them — with a quality gate that
-refuses corrections that do not measurably help.
+<p align="center">
+  White-point balance for external displays, measured with an iPhone.
+</p>
 
-> Status: **experimental end-to-end workflow**. The CLI and Mac app share a tested calibration
-> engine, with exact gamma-table restoration and versioned experiment records. The sideloaded ALS
-> experiment supplies measurements; its absolute colour accuracy still needs reference validation.
-> See [status](docs/status.md) and [architecture](docs/architecture.md).
+<p align="center">
+  <a href="https://github.com/Tinnci/d65/actions/workflows/ci.yml"><img src="https://github.com/Tinnci/d65/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-555555" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/iOS-17%2B-555555" alt="iOS 17+">
+  <img src="https://img.shields.io/badge/Swift-6-555555" alt="Swift 6">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-555555" alt="MIT licence"></a>
+</p>
+
+D65 measures a display's white with the iPhone's ambient-light sensor, solves three per-channel
+gains, and applies them through the Mac's gamma table. A quality gate refuses any correction that
+doesn't measurably help. It isn't a colorimeter replacement or an ICC profiling tool: it moves
+white, and says so.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/whitepoint-dark.svg">
+  <img src="docs/images/whitepoint-light.svg" alt="CIE xy close-up around D65: two sessions on a HAN K27 move from ΔE00 4.18 and 4.56 to 1.69 and 1.40 in one pass, inside the ΔE00 2 ring." width="100%">
+</picture>
+
+> **Status: experimental.** The Mac app, iPhone probe and CLI share one tested engine, and the full
+> flow has run on one display (a HAN K27 over USB-C). The probe's light sensor is uncalibrated, so
+> the numbers show convergence against that sensor, not colorimeter accuracy. See
+> [status](docs/status.md) and [experiments](docs/experiments.md).
+
+## How it works
+
+1. **Measure.** The Mac shows twelve full-screen patches while the phone lies face-down on an
+   outline. Black gives the ambient light; four greys fit the panel's response.
+2. **Solve.** The white is compared with D65 using CIEDE2000 at equal luminance. Gains are solved
+   in linear light and raised to 1/γ for the encoded table.
+3. **Verify and keep.** The correction is applied, white is measured again, and at most three
+   passes run. Review shows the result on the real display; Keep hands it to a menu-bar agent that
+   holds it, reapplies it when the display returns, and flags it when contrast, preset or mode
+   change.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/gamma-dark.svg">
+  <img src="docs/images/gamma-light.svg" alt="Relative luminance of four grey patches with a fitted gamma of 2.108 and 2.114 from two sessions, slightly above the assumed 2.2 curve." width="100%">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/primaries-dark.svg">
+  <img src="docs/images/primaries-light.svg" alt="CIE xy: measured red, green and blue of the HAN K27 against the sRGB and Display P3 triangles; red and blue near sRGB, green less saturated." width="60%">
+</picture>
+
+The figures are generated from the recorded sessions by `python3 scripts/make-figures.py`.
+
+## Limits worth knowing first
+
+- **Sideload only.** The probe reads the ambient-light sensor through private IOHID calls, so it
+  can't ship on the App Store. That reader stays out of this repository (`local/`, git-ignored); a
+  clean clone builds a probe that says it has no sensor, or a labelled simulation in the Simulator.
+- **One panel so far.** Behaviour on other monitors, connections and HDR is unknown. A
+  [monitor report](.github/ISSUE_TEMPLATE/monitor-report.md) helps most.
+- **Software correction.** The gamma table only applies while D65 runs, and macOS reverts it when
+  D65 quits. Hardware gain over DDC/CI is ignored by the test panel.
+- **White only.** A diagonal gain can't fix gamut or tone response.
 
 ## Why the name
 
@@ -34,7 +88,8 @@ swift run d65 display probe                                  # read-only
 swift run d65 display apply --r 0.97 --g 0.95 --b 1.0 --hold 10
 swift run d65 display reset
 swift run d65 serve            # advertise _d65._tcp, solve gains from a probe
-swift run d65 ddc probe        # read the monitor's hardware RGB gain over DDC/CI
+swift run d65 ddc probe        # read monitor controls over DDC/CI, with timings
+swift run d65 ddc capabilities # the monitor's MCCS capabilities string, parsed
 ```
 
 `--hold` matters: macOS restores the gamma table as soon as the process that set it exits, so an
@@ -51,11 +106,10 @@ predicted  x=0.3127 y=0.3290  CCT≈6508 K
 `swift test` additionally requires a full Xcode installation, because XCTest is not shipped with
 the Command Line Tools. CI runs both.
 
-The first protocol-v3 hardware run at `b219ab6` reached normalized ΔE00 **4.56 → 1.40** in
-one pass and restored the starting gamma tables without reported errors. See
-[experiment §13](docs/experiments.md#13-first-real-session-after-the-shared-engine-and-app-changes)
-and the [session runbook](docs/runbook.md). This is convergence against the ALS, not validation
-against a reference colorimeter.
+Hardware sessions: the CLI run at `b219ab6` reached normalized ΔE00 **4.56 → 1.40** and the
+Mac-app run at `3da5340` **4.18 → 1.69**, each in one pass. See
+[experiments §13–14](docs/experiments.md#13-first-real-session-after-the-shared-engine-and-app-changes)
+and the [session runbook](docs/runbook.md).
 
 ## Documentation
 
@@ -87,6 +141,7 @@ docs/experiments.md      every measurement, with numbers
 docs/hardware.md         display, DDC capability matrix, gamma behaviour
 docs/architecture.md     module boundaries and data flow
 docs/research/           Apple's Color Balance, and how the ALS is read
+scripts/                 icon and README-figure generators, revision stamp
 project.yml              XcodeGen spec for the two apps
 ```
 
@@ -115,6 +170,7 @@ They need Xcode 16 or later.
 
 Both apps' icons, accent colour and the probe's launch colour are generated by
 `swift scripts/make-icons.swift`, which rewrites only those sets in each `Assets.xcassets`.
+README figures come from `python3 scripts/make-figures.py`.
 
 ## Design
 
@@ -159,4 +215,5 @@ applied as per-channel gains through the render server. The full write-up — co
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The DDC/CI transport is ported from MonitorControl (MIT); see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
