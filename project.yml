@@ -60,14 +60,10 @@ targets:
     platform: iOS
     sources:
       - path: Apps/D65Probe
-      # Private ALS reader: present only in a local checkout (local/ is git-ignored).
-      - path: local/als-probe/ALSProbe/Experiment.swift
-        optional: true
-      - path: local/als-probe/ALSProbe/IOHIDShim.swift
-        optional: true
-      - path: local/als-probe/ALSProbe/MotionGate.swift
-        optional: true
-      - path: local/als-probe/D65LocalSensor.swift
+      # Private ALS reader: a directory that exists only in a local checkout (local/ is git-ignored).
+      # Listing the directory, not its files, keeps a clean clone buildable: XcodeGen expands it at
+      # generation time, so when it is missing the target simply has no sensor sources.
+      - path: local/probe-sensor
         optional: true
     dependencies:
       - package: D65

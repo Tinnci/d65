@@ -10,8 +10,9 @@ the measurements. Keeping a correction is a separate action in the Mac app.
    rate fixed throughout the session. Use a dark room; the verified run had black/ambient Y=1.29.
 2. Pair and unlock the iPhone, enable Developer Mode as required by Xcode, and use the same local
    network as the Mac. Allow the probe's Local Network and Motion permissions when prompted.
-3. Confirm that the local ALS source files exist: `Experiment.swift`, `IOHIDShim.swift`, and
-   `MotionGate.swift` under `local/als-probe/ALSProbe`, plus `local/als-probe/D65LocalSensor.swift`.
+3. Confirm that `local/probe-sensor/` exists and holds the ALS sources: `D65LocalSensor.swift` plus
+   `Experiment.swift`, `IOHIDShim.swift` and `MotionGate.swift` (symlinks into `local/als-probe/ALSProbe`
+   work). `project.yml` lists only the directory, so a clone without it still builds.
    The factory must return a `ProbeSensor`. These files are deliberately ignored, not supplied by a
    clean clone. Without a local factory, a physical-device build reports no sensor; a Simulator
    build uses a labelled simulation and cannot validate display colour.
