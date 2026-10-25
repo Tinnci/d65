@@ -333,6 +333,72 @@ The session ran for 33.35 seconds and restored its starting gamma tables. It did
 correction. Raw tagged attempts, measurements, gains, lifecycle and outcome are saved locally in
 `local/experiments/A0E8B5AC-4CAF-4D10-864A-0474A714C314.json` (ignored working data).
 
+## 14. GUI flow on hardware
+
+Revision `3da5340`, 2026-10-25. D65Mac (menu-bar agent, signed for team `CH93QYRTNG`, built from
+`.build/xcode-signed`) and D65 Probe on the iPhone Air (`iPhone18,4`, iOS 27.2, with the local ALS
+adapter), K27 at 3840×2160 / 60 Hz over USB-C, display ID 1. No corrections were stored before
+the run (`~/Library/Application Support/D65` did not exist), and the earlier `d65 serve` was
+stopped with SIGTERM so the app could listen on port 50515.
+
+Starting state, read before launching the app:
+
+```
+gamma table   1024 entries, linear: R/G/B 0.0000 0.2502 0.5005 0.7507 1.0000
+DDC           luminance 30, contrast 50, preset 5 (6500 K), display mode 0; 9 reads, 0 retries, ≤ 90 ms each
+```
+
+### The calibration session
+
+One app session, `05C682F6-10F3-459E-A4E0-6D319CC6680D`, calibrate mode, 33.27 s, 13 measurement
+attempts with no failures. The record stores contrast 50, preset 5 and display mode 0 as the
+guarded settings.
+
+```
+gamma fit     2.107692
+baseline      white x=0.3094 y=0.3212 (raw mean), normalized ΔE00 4.180534
+pass 1        R=0.980575 G=1.000000 B=0.934387
+verify        emitted Y=141.16, x=0.3108 y=0.3259, normalized ΔE00 1.689141
+outcome       converged in one pass; restorationErrors empty
+lifecycle     idle → measuring → applying → verifying → restoring → finished
+```
+
+After Keep, `Corrections.json` holds that result, and a read-only `d65 display probe` showed
+the agent holding it. The table's top entries were R 0.9907, G 1.0000, B 0.9683, which matches the
+gains raised to 1/γ: 0.980575^(1/2.1077) = 0.9907 and 0.934387^(1/2.1077) = 0.9683. The engine had
+restored the table before the agent reapplied it, as designed.
+
+Against §13 (CLI, same panel, phone re-placed): baseline white moved by Δxy ≈ 0.0004 (0.3091,
+0.3209 → 0.3094, 0.3212), baseline ΔE00 4.56 → 4.18, gamma 2.114 → 2.108, pass-1 blue gain
+0.927 → 0.934. Repeatability between placements is far better than the ±1200 K of the hand-held
+sessions in §3, so the outline helps.
+
+**Gate thresholds on the Y = 1 metric.** On this panel the baseline sits at 4.2–4.6, above the
+2.5 "already fine" threshold and below the 5.0 ceiling; one pass reaches 1.4–1.7, inside the 2.0
+target. The thresholds give sensible decisions for this display. Two sessions are not enough to
+tune them.
+
+### Checklist
+
+The operator reported every check as working. The table separates what the saved data also
+shows from what rests on that report alone.
+
+| # | Check | Result |
+|---|---|---|
+| A | Menu-bar agent, K27 "Not calibrated" | reported working |
+| B | Prepare preselects K27, reads monitor controls | reported; the record's guarded settings match the starting DDC read |
+| C | Probe connects; Place shows the outline | reported; probe identity `iPhone18,4`, protocol v3 in the record |
+| D | Esc during Place and during Measure | reported. No cancelled-session record exists, so the mid-measure cancel left no trace (a cancel saves a record) |
+| E/F | Measure-only with the progress strip off, then on | **not evidenced**: no measure-only records were saved, so the strip's optical effect is still unmeasured |
+| G | Placement starts the calibration on its own | reported; session above |
+| H | Review preview; Space shows the original | reported (visual) |
+| I | Keep, then quit and relaunch | Keep verified (store and held table above). The app process was the same one launched at the start (pid 49892) when the results were read, so quit and relaunch are not evidenced |
+| J | Contrast change marks the row Stale | reported; contrast read back 50 afterwards |
+| K | Sleep and wake | reported (visual) |
+
+Still open from this run: E/F (does the bottom progress strip change the white reading?) and a
+quit-and-relaunch cycle with a read-only `d65 display probe` after each step.
+
 ## Confounds to control in future runs
 
 | Confound | Effect | Mitigation |
