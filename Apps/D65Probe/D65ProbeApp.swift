@@ -39,8 +39,20 @@ enum ProbeTheme {
         ? UIColor(red: 0.89, green: 0.66, blue: 0.28, alpha: 1) : UIColor(red: 0.60, green: 0.36, blue: 0.0, alpha: 1) })
 }
 
+/// The same motion vocabulary as the Mac app and the guide: a 700 ms (.32, .72, 0, 1) ease for a
+/// discrete change, a k100/c18 spring for anything following live input, nothing under Reduce Motion.
+enum Motion {
+    static func change(_ reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .timingCurve(0.32, 0.72, 0, 1, duration: 0.7)
+    }
+    static func follow(_ reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .interpolatingSpring(mass: 1, stiffness: 100, damping: 18)
+    }
+}
+
 struct ProbeView: View {
     @ObservedObject var model: ProbeModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -48,7 +60,10 @@ struct ProbeView: View {
             VStack(spacing: 0) {
                 header
                 Spacer(minLength: 24)
+                // A new state arrives with the discrete-change ease; progress inside a state doesn't re-run it.
                 content.frame(maxWidth: 340).padding(.horizontal, 28)
+                    .id(phaseKey)
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 12)), removal: .opacity))
                 Spacer(minLength: 24)
                 if !faceDown {
                     StepStrip(current: step).padding(.horizontal, 28)
@@ -57,7 +72,7 @@ struct ProbeView: View {
             }
             .padding(.bottom, 16)
         }
-        .animation(.easeInOut(duration: 0.25), value: model.phase)
+        .animation(Motion.change(reduceMotion), value: phaseKey)
         .tint(ProbeTheme.accent)
         .sheet(isPresented: $model.showingSettings) { ProbeSettings(model: model) }
         .fullScreenCover(isPresented: $model.showingGuide) {
@@ -84,6 +99,22 @@ struct ProbeView: View {
             }
         }
         .padding(.horizontal, 24).padding(.top, 8)
+    }
+
+    private var phaseKey: String {
+        switch model.phase {
+        case .noSensor: "noSensor"
+        case .searching: "searching"
+        case .localNetworkOff: "localNetworkOff"
+        case .ready: "ready"
+        case .placing: "placing"
+        case .measuring: "measuring"
+        case .result: "result"
+        case .refused: "refused"
+        case .failed: "failed"
+        case .cancelled: "cancelled"
+        case .measurementComplete: "measurementComplete"
+        }
     }
 
     /// Where the session is: 0 connect, 1 place, 2 measure, 3 review on the Mac.
@@ -131,13 +162,7 @@ struct ProbeView: View {
                         ? "Review it on your Mac, then keep or discard it."
                         : verdict == .confirmed ? "Your display was already close to D65." : "See your Mac for the reason.") {
                 if verdict == .improved {
-                    HStack(spacing: 10) {
-                        Text(String(format: "%.1f", before)).foregroundStyle(.secondary)
-                        Image(systemName: "arrow.right").foregroundStyle(.secondary)
-                        Text(String(format: "%.1f", after))
-                    }
-                    .font(.system(size: 34, weight: .semibold).monospacedDigit())
-                    .accessibilityLabel(String(format: "ΔE from %.1f to %.1f", before, after))
+                    ResultCount(before: before, after: after)
                     Text("ΔE00 to D65").font(.caption).foregroundStyle(.secondary)
                 }
                 Button("Done") { model.dismissResult() }.buttonStyle(.bordered).padding(.top, 4)
@@ -172,6 +197,8 @@ struct ProbeView: View {
 /// Connect, place, measure, then review on the Mac. Shown only while the screen faces the user.
 private struct StepStrip: View {
     let current: Int
+    @Namespace private var marker
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let titles = ["Connect", "Place", "Measure", "Review on Mac"]
     var body: some View {
         HStack(spacing: 0) {
@@ -181,6 +208,13 @@ private struct StepStrip: View {
                         .fill(index <= current ? Color.primary : Color.clear)
                         .overlay(Circle().strokeBorder(index <= current ? Color.clear : Color.secondary.opacity(0.5), lineWidth: 1.5))
                         .frame(width: 9, height: 9)
+                        .background {
+                            if index == current {
+                                Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 1)
+                                    .frame(width: 19, height: 19)
+                                    .matchedGeometryEffect(id: "current", in: marker)
+                            }
+                        }
                     Text(titles[index])
                         .font(.caption2.weight(index == current ? .semibold : .regular))
                         .foregroundStyle(index == current ? .primary : .secondary)
@@ -188,6 +222,7 @@ private struct StepStrip: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .animation(Motion.change(reduceMotion), value: current)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Step \(current + 1) of 4, \(titles[current])")
     }
@@ -259,7 +294,7 @@ private struct Message<Actions: View>: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            ProbeMark(mode: mark).frame(width: 56, height: 56)
+            StatusMark(mode: mark).frame(width: 64, height: 64)
             Text(title).font(.title2.weight(.semibold)).multilineTextAlignment(.center)
             Text(text).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
             if busy { ProgressView() }
@@ -309,5 +344,68 @@ struct ProbeMark: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// The icon's mark as the status: while searching its dot drifts along the locus; when the probe
+/// connects or a result is good it settles onto the centre and the ring lights; a stopped session
+/// leaves it off-centre. A critical state keeps the plain warning mark.
+struct StatusMark: View {
+    let mode: ProbeMark.Mode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        if mode == .critical {
+            ProbeMark(mode: .critical)
+        } else {
+            // One clock, paused unless searching: an ambient drift only while it means "looking".
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: mode != .none || reduceMotion)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                MarkCanvas(held: target(at: t), ink: LineInk(scheme: scheme))
+                    .animation(Motion.change(reduceMotion), value: mode)
+            }
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func target(at t: Double) -> Double {
+        switch mode {
+        case .held: 1
+        case .stale: 0.45
+        default: reduceMotion ? 0.3 : 0.3 + 0.16 * sin(t * 1.1)
+        }
+    }
+
+    private struct MarkCanvas: View, Animatable {
+        var held: Double
+        let ink: LineInk
+        var animatableData: Double { get { held } set { held = newValue } }
+        var body: some View {
+            Canvas { context, size in drawFrontMark(context, ink: ink, size: size, held: held, fill: 0.42) }
+        }
+    }
+}
+
+/// ΔE before → after, the after value counting down from the before value when it appears.
+private struct ResultCount: View {
+    let before: Double, after: Double
+    @State private var shown: Double?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(String(format: "%.1f", before)).foregroundStyle(.secondary)
+            Image(systemName: "arrow.right").foregroundStyle(.secondary)
+            Counting(value: shown ?? before)
+        }
+        .font(.system(size: 34, weight: .semibold).monospacedDigit())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(format: "ΔE from %.1f to %.1f", before, after))
+        .onAppear { withAnimation(Motion.change(reduceMotion).map { $0.delay(0.25) }) { shown = after } }
+    }
+    private struct Counting: View, Animatable {
+        var value: Double
+        var animatableData: Double { get { value } set { value = newValue } }
+        var body: some View { Text(String(format: "%.1f", value)) }
     }
 }

@@ -171,8 +171,8 @@ private func drawMark(_ context: GraphicsContext, ink: LineInk, centre: (Double,
 /// The icon's mark, face-on and in the icon's proportions (ring 292, width 60, dot 104, gap 22 on a
 /// 1024 tile; the arc a quadratic through the centre). `held` moves the dot along the arc from the
 /// cool side onto the centre; when it lands the ring takes the bright stroke.
-private func drawFrontMark(_ context: GraphicsContext, ink: LineInk, size: CGSize, held: Double) {
-    let k = min(size.width, size.height) * 0.36 / 292
+func drawFrontMark(_ context: GraphicsContext, ink: LineInk, size: CGSize, held: Double, fill: Double = 0.36) {
+    let k = min(size.width, size.height) * fill / 292
     let c = CGPoint(x: size.width / 2, y: size.height / 2)
     func p(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: c.x + CGFloat(x) * k, y: c.y + CGFloat(y) * k) }
     // The icon's arc, in y-down coordinates relative to the centre.

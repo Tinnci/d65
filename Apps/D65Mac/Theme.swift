@@ -55,3 +55,24 @@ enum Format {
         date.formatted(.relative(presentation: .named))
     }
 }
+
+/// One motion vocabulary for both apps (after hairline's two clocks). A discrete change, such as a
+/// new step or a finished patch, takes a 700 ms ease on (.32, .72, 0, 1). A value that follows live
+/// input, such as placement steadiness, follows a spring (k 100, c 18, m 1). Reduce Motion turns both
+/// off.
+enum Motion {
+    static func change(_ reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .timingCurve(0.32, 0.72, 0, 1, duration: 0.7)
+    }
+    static func follow(_ reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .interpolatingSpring(mass: 1, stiffness: 100, damping: 18)
+    }
+}
+
+/// A number that counts between values when it changes (Animatable, so SwiftUI drives the frames).
+struct CountingText: View, Animatable {
+    var value: Double
+    var format = "%.1f"
+    var animatableData: Double { get { value } set { value = newValue } }
+    var body: some View { Text(String(format: format, value)).monospacedDigit() }
+}

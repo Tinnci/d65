@@ -6,16 +6,24 @@ import SwiftUI
 
 struct SessionView: View {
     @ObservedObject var model: SessionModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
-            StepBar(current: model.step)
+            StepBar(current: model.step).animation(Motion.change(reduceMotion), value: model.step)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let notice = model.notice { Banner(tone: .warning, title: notice) }
-                    content
+                    if let notice = model.notice {
+                        Banner(tone: .warning, title: notice).transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    // Each step arrives from the side it advances toward.
+                    VStack(alignment: .leading, spacing: 14) { content }
+                        .id(model.step)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(x: 18)), removal: .opacity))
                 }
+                .animation(Motion.change(reduceMotion), value: model.step)
+                .animation(Motion.change(reduceMotion), value: model.notice)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
             }
@@ -152,6 +160,7 @@ private struct ConnectStep: View {
 
 private struct PlaceStep: View {
     @ObservedObject var model: SessionModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Text("Place the phone on the outline").font(.title2.weight(.semibold))
         Text("Press the front of the iPhone flat against \(model.selected?.name ?? "the display"), inside the outline, top edge up. Measuring starts when the readings settle.")
@@ -173,6 +182,7 @@ private struct PlaceStep: View {
         }
         VStack(alignment: .leading, spacing: 6) {
             ProgressView(value: model.placement.steadyFraction)
+                .animation(Motion.follow(reduceMotion), value: model.placement.steadyFraction)
                 .tint(model.placement.state == .settled ? Theme.ok : .secondary)
             Text(placementText).font(.callout).foregroundStyle(.secondary)
         }
@@ -195,9 +205,12 @@ private struct PlaceStep: View {
 
 private struct MeasureStep: View {
     @ObservedObject var model: SessionModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Text(title).font(.title2.weight(.semibold)).monospacedDigit()
-        PatchStrip(current: model.patchIndex)
+            .contentTransition(.numericText())
+            .animation(Motion.change(reduceMotion), value: title)
+        PatchStrip(current: model.patchIndex).animation(Motion.change(reduceMotion), value: model.patchIndex)
         if !model.passes.isEmpty || model.verifyingPass != nil {
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
                 GridRow { Text("Pass"); Text("White"); Text(model.metric.label) }.foregroundStyle(.secondary)
@@ -230,6 +243,9 @@ private struct MeasureStep: View {
 private struct ReviewStep: View {
     @ObservedObject var model: SessionModel
     @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The trajectory draws and the ΔE counts down together, once, when Review appears.
+    @State private var reveal = 0.0
     var body: some View {
         if let summary = model.summary, let record = model.record {
             Banner(tone: summary.toneKind, title: summary.title,
@@ -240,11 +256,22 @@ private struct ReviewStep: View {
             let trajectory = record.whiteTrajectory
             if trajectory.count > 0, summary.tone != .critical {
                 HStack(alignment: .top, spacing: 14) {
-                    ChromaticityPlot(points: trajectory, metric: record.configuration.metric).frame(width: 220, height: 220)
+                    ChromaticityPlot(points: trajectory, metric: record.configuration.metric, reveal: reveal)
+                        .frame(width: 220, height: 220)
+                        .onAppear {
+                            guard !reduceMotion else { reveal = 1; return }
+                            // One 700 ms ease per pass, so each measured step reads as its own move.
+                            withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.7 * Double(max(trajectory.count - 1, 1)))) { reveal = 1 }
+                        }
                     VStack(alignment: .leading, spacing: 8) {
-                        Figure(label: "\(record.configuration.metric.label) to D65\(record.viewerObserver.map { " (\($0.rawValue))" } ?? "")",
-                               before: Format.deltaE(record.baselineDeltaE),
-                               after: record.bestGains?.isIdentity == false ? Format.deltaE(record.bestDeltaE) : nil)
+                        if let before = record.baselineDeltaE, let best = record.bestDeltaE, record.bestGains?.isIdentity == false {
+                            CountingFigure(label: "\(record.configuration.metric.label) to D65\(record.viewerObserver.map { " (\($0.rawValue))" } ?? "")",
+                                           before: before, after: before + (best - before) * reveal)
+                        } else {
+                            Figure(label: "\(record.configuration.metric.label) to D65\(record.viewerObserver.map { " (\($0.rawValue))" } ?? "")",
+                                   before: Format.deltaE(record.baselineDeltaE),
+                                   after: record.bestGains?.isIdentity == false ? Format.deltaE(record.bestDeltaE) : nil)
+                        }
                         Figure(label: "White (approx.)", before: Format.cct(trajectory.first?.correlatedColorTemperature()),
                                after: trajectory.count > 1 ? Format.cct(bestChromaticity(record)?.correlatedColorTemperature()) : nil)
                         if let gains = record.bestGains, !gains.isIdentity {
@@ -382,6 +409,7 @@ struct PatchStrip: View {
             ForEach(Array(CalibrationPatch.sequence.enumerated()), id: \.offset) { index, patch in
                 RoundedRectangle(cornerRadius: 3)
                     .fill(index < current ? Color(.sRGB, red: patch.red, green: patch.green, blue: patch.blue) : Color.clear)
+                    .scaleEffect(index < current ? 1 : 0.82)
                     .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(index == current ? Color.primary : Theme.rule,
                                                                             lineWidth: index == current ? 2 : 1))
                     .aspectRatio(1, contentMode: .fit)
@@ -417,6 +445,25 @@ struct Banner: View {
         case .warning: "exclamationmark.triangle.fill"
         case .critical: "exclamationmark.octagon.fill"
         }
+    }
+}
+
+/// The before value and an after value that counts down as the Review trajectory draws.
+private struct CountingFigure: View {
+    let label: String
+    let before: Double
+    let after: Double
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text(Format.deltaE(before) + " →").foregroundStyle(.secondary)
+                CountingText(value: after)
+            }
+            .font(.title3.weight(.semibold)).monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
     }
 }
 

@@ -8,36 +8,54 @@ struct WhitePointGlyph: View {
     enum Mode { case held, stale, paused, none, critical }
     let mode: Mode
     var size: CGFloat = 22
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Canvas { context, canvas in
-            let r = min(canvas.width, canvas.height) / 2 - 1.5
-            let centre = CGPoint(x: canvas.width / 2, y: canvas.height / 2)
-            let ring = Path(ellipseIn: CGRect(x: centre.x - r, y: centre.y - r, width: r * 2, height: r * 2))
-            context.stroke(ring, with: .color(mode == .critical ? Theme.critical : .secondary), lineWidth: 1.5)
-            let dot = r * 0.42
-            let rect = CGRect(x: centre.x - dot, y: centre.y - dot, width: dot * 2, height: dot * 2)
-            switch mode {
-            case .held: context.fill(Path(ellipseIn: rect), with: .color(.primary))
-            case .stale: context.stroke(Path(ellipseIn: rect), with: .color(Theme.warn), lineWidth: 1.5)
-            case .paused: context.stroke(Path(ellipseIn: rect), with: .color(.secondary), lineWidth: 1.2)
-            case .critical: context.fill(Path(ellipseIn: rect), with: .color(Theme.critical))
-            case .none:
-                let small = rect.insetBy(dx: dot * 0.35, dy: dot * 0.35)
-                context.fill(Path(ellipseIn: small), with: .color(.secondary.opacity(0.6)))
+        GlyphShape(dot: mode == .none ? 0.27 : 0.42, fill: mode == .held || mode == .critical ? 1 : 0, mode: mode)
+            .frame(width: size, height: size)
+            .animation(Motion.change(reduceMotion), value: mode)
+            .accessibilityHidden(true)
+    }
+
+    /// Dot size and fill interpolate, so a correction being kept visibly fills the dot.
+    private struct GlyphShape: View, Animatable {
+        var dot: Double, fill: Double
+        let mode: Mode
+        var animatableData: AnimatablePair<Double, Double> {
+            get { AnimatablePair(dot, fill) } set { dot = newValue.first; fill = newValue.second }
+        }
+        var body: some View {
+            Canvas { context, canvas in
+                let r = min(canvas.width, canvas.height) / 2 - 1.5
+                let centre = CGPoint(x: canvas.width / 2, y: canvas.height / 2)
+                let ring = Path(ellipseIn: CGRect(x: centre.x - r, y: centre.y - r, width: r * 2, height: r * 2))
+                context.stroke(ring, with: .color(mode == .critical ? Theme.critical : .secondary), lineWidth: 1.5)
+                let d = r * dot
+                let rect = CGRect(x: centre.x - d, y: centre.y - d, width: d * 2, height: d * 2)
+                let colour: Color = switch mode {
+                case .held: .primary
+                case .stale: Theme.warn
+                case .critical: Theme.critical
+                case .paused, .none: .secondary
+                }
+                context.fill(Path(ellipseIn: rect), with: .color(colour.opacity(mode == .none ? 0.6 : fill)))
+                if fill < 1, mode != .none {
+                    context.stroke(Path(ellipseIn: rect), with: .color(colour), lineWidth: mode == .paused ? 1.2 : 1.5)
+                }
             }
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
     }
 }
 
 /// CIE 1931 xy close-up around D65: Planckian locus, ΔE00 2 and 5 contours (the engine's Y = 1 metric),
 /// and this session's white, one dot per pass.
-struct ChromaticityPlot: View {
+struct ChromaticityPlot: View, Animatable {
     let points: [Chromaticity]
     /// Rings and the spoken summary use the session's own metric.
     var metric: WhiteErrorMetric = .ciede2000
+    /// 0…1: how much of the trajectory is drawn. Animating it shows the white travelling toward D65.
+    var reveal: Double = 1
+    var animatableData: Double { get { reveal } set { reveal = newValue } }
 
     var body: some View {
         let D65 = Self.D65
@@ -75,12 +93,17 @@ struct ChromaticityPlot: View {
             guard !points.isEmpty else { return }
             var trail = Path()
             for (i, c) in points.enumerated() { i == 0 ? trail.move(to: p(c.x, c.y)) : trail.addLine(to: p(c.x, c.y)) }
-            context.stroke(trail, with: .color(.primary), lineWidth: 1.3)
-            for (i, c) in points.enumerated() {
+            context.stroke(trail.trimmedPath(from: 0, to: reveal), with: .color(.primary), lineWidth: 1.3)
+            // Each measured white appears as the trail reaches it; a moving dot marks the white in transit.
+            let segments = Double(max(points.count - 1, 1))
+            for (i, c) in points.enumerated() where reveal >= Double(i) / segments - 0.001 {
                 let at = p(c.x, c.y), last = i == points.count - 1
                 let rect = CGRect(x: at.x - 3.5, y: at.y - 3.5, width: 7, height: 7)
-                context.fill(Path(ellipseIn: rect), with: .color(last ? .primary : Theme.card))
+                context.fill(Path(ellipseIn: rect), with: .color(last && reveal >= 1 ? .primary : Theme.card))
                 context.stroke(Path(ellipseIn: rect), with: .color(.primary), lineWidth: 1.3)
+            }
+            if reveal < 1, points.count > 1, let head = trail.trimmedPath(from: 0, to: reveal).currentPoint {
+                context.fill(Path(ellipseIn: CGRect(x: head.x - 3.5, y: head.y - 3.5, width: 7, height: 7)), with: .color(.primary))
             }
         }
         .aspectRatio(1, contentMode: .fit)
