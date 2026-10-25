@@ -85,4 +85,4 @@ private struct HistoryView: View {
     }
 }
 
-extension ExperimentRecord: Identifiable {}
+extension ExperimentRecord: @retroactive Identifiable {}
