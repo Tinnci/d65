@@ -26,7 +26,8 @@ import Foundation
         modeID = mode?.ioDisplayModeID
         let identity = CFUUIDCreateString(nil, uuid)! as String
         var settings: [String: UInt16] = [:]
-        for (name, code) in [("brightness", UInt8(0x10)), ("contrast", 0x12), ("preset", 0x14), ("input", 0x60)] {
+        // Guarded settings decide staleness later; brightness and input are recorded for context only.
+        for (name, code) in MCCS.guardedSettings + [("brightness", MCCS.luminance), ("input", MCCS.inputSource)] {
             if let value = ddc?.read(code) { settings[name] = value.current }
         }
         context = DisplayContext(identity: identity, name: screen.localizedName, displayID: id,
@@ -91,15 +92,24 @@ public struct DisplayInfo: Identifiable, Hashable, Sendable {
     public static func preferred(in displays: [DisplayInfo]) -> DisplayInfo? {
         displays.first { !$0.isBuiltin } ?? displays.first
     }
-    /// Settings that invalidate a correction, read over DDC. Empty when DDC is unavailable for this display.
+    /// Guarded settings that could be read, for display. Empty when DDC is unavailable for this display.
     public nonisolated static func monitorSettings(displayID: UInt32) -> [String: UInt16] {
-        guard let ddc = DDCDisplay.matching(displayID: displayID) else { return [:] }
-        var settings: [String: UInt16] = [:]
-        for (name, code) in [("contrast", UInt8(0x12)), ("preset", 0x14)] {
-            if let value = ddc.read(code) { settings[name] = value.current }
-        }
-        return settings
+        guard case .values(let values) = monitorReading(displayID: displayID) else { return [:] }
+        return values.compactMapValues { $0 }
     }
+
+    /// Read every guarded setting through the display's shared, serialized endpoint.
+    /// Blocking (tens to hundreds of milliseconds per read): call off the main thread.
+    public nonisolated static func monitorReading(displayID: UInt32) -> MonitorReading {
+        guard let ddc = DDCDisplay.matching(displayID: displayID) else { return .unreachable }
+        var values: [String: UInt16?] = [:]
+        for (name, code) in MCCS.guardedSettings { values[name] = .some(ddc.read(code)?.current) }
+        // A monitor that answered nothing at all is unreachable, not merely missing settings.
+        return values.values.allSatisfy { $0 == nil } ? .unreachable : .values(values)
+    }
+
+    /// Ask for fresh EDID matches, e.g. after wake, when DDC endpoints may have been rebuilt.
+    public nonisolated static func refreshMonitorControl() { DDCRegistry.shared.invalidate() }
 }
 
 extension NSScreen {

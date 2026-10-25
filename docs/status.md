@@ -70,7 +70,12 @@ persistence have software coverage, but were not exercised in this hardware sess
    ΔE00 difference < 0.2), and re-baseline the gate thresholds on the Y = 1 metric.
 3. **Manual controls.** Hardware (DDC) and software (gamma) sections, each with reset, with the
    hardware section disabled unless `d65 ddc writable` says the panel accepts writes.
-4. **Stale-correction policy.** A stale correction stays applied and is flagged. Measure once after a
+4. **DDC follow-ups.** The capabilities string, serialized endpoints, cached EDID matching and the
+   three-state guard are in place, and the guard's reads take about 0.3 s on the K27. Still open:
+   whether DDC survives sleep and re-plug (watch for `unverified` after wake), using `0x52`/`0x02`
+   to detect menu changes in one read, a sensor sweep for brightness and contrast, black-level tests
+   on dark patches, and HDR.
+5. **Stale-correction policy.** A stale correction stays applied and is flagged. Measure once after a
    contrast change to confirm it is still closer than none.
 
 ## Risks

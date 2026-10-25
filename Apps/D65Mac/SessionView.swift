@@ -1,5 +1,6 @@
 import D65Calibration
 import D65Core
+import D65Display
 import D65MacRuntime
 import SwiftUI
 
@@ -93,7 +94,13 @@ private struct PrepareStep: View {
                 Text("Monitor controls").foregroundStyle(.secondary)
                 Text(model.monitorSettings.isEmpty
                      ? "Not readable over DDC — D65 can’t warn if contrast changes later"
-                     : model.monitorSettings.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+                     : MCCS.guardedSettings.compactMap { setting in
+                         model.monitorSettings[setting.name].map { value in
+                             setting.code == MCCS.colorPreset
+                                 ? "preset \(MCCS.presetName(value) ?? String(value))"
+                                 : "\(MCCS.name(of: setting.code).lowercased()) \(value)"
+                         }
+                     }.joined(separator: ", "))
             }
             GridRow { Text("Takes").foregroundStyle(.secondary); Text("About 40 seconds") }
         }

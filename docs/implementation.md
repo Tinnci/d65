@@ -42,9 +42,10 @@ swift run d65 ddc writable [--display-id <id>]
 swift run d65 serve [--port <p>] [--display-id <id>]
 ```
 
-`serve` defaults to the preferred external display, falling back to an available screen. Standalone
-`display` and `ddc` commands default to the main display. DDC requires a unique EDID match to the selection;
-use `display list` to find the external screen's ID when the main screen is built in.
+`serve` and `ddc` default to the preferred external display, falling back to an available screen.
+`display` commands default to the main display. DDC requires a unique EDID match to the selection;
+use `display list` to find a screen's ID. `ddc capabilities` reads and parses the MCCS capabilities
+string; `ddc probe` names each control and reports per-read timing and retries.
 
 `serve` accepts at most one action flag:
 
@@ -101,6 +102,21 @@ labelled simulated sensor in the iOS Simulator, else none.
 `SelectedDisplay` adds mode checks and EDID-matched DDC access. DDC reply parsing validates transport
 success, checksum, reply opcode, control code and result status. Failed I2C reads return failure even
 if sending the request succeeded.
+
+DDC is split in two. `DDCDisplay` (no IOKit) is the protocol over an injected `DDCTransport`: Get/Set
+VCP, the chunked capabilities request (0xF3, tried with the spec checksum, then the ported Get quirk),
+`DDCStatistics`, and a lock that serializes every exchange on an endpoint with at least 50 ms between
+exchanges. `DDCRegistry` maps displays to endpoints by EDID vendor/product/serial, refusing ambiguous
+matches. It caches matches until CoreGraphics reports a reconfiguration, a cached endpoint fails three
+times in a row, or a "no endpoint" result is 10 s old, and it keeps one `DDCDisplay` per I/O registry
+entry so all users share that endpoint's lock. `MCCS` holds VCP names, preset values, the codes
+never written automatically, and the guarded settings (contrast, preset, display mode).
+
+The settings guard is three-state. `StoredCorrection.check` compares the mode and the guarded
+settings recorded at calibration with a `MonitorReading` and answers `unchanged`, `changed`,
+`unverified` (endpoint unreachable or a recorded setting unreadable), or `unguarded` (nothing was
+readable at calibration). The agent polls every 30 s, skips sleeping displays and running sessions,
+refreshes EDID matches on wake and waits 5 s before polling again.
 
 Each session saves schema-v1 JSON in `local/experiments/<session UUID>.json` (CLI), or the app's
 Application Support directory. White-point ΔE00 in new records uses Y=1 normalization; historical

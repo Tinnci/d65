@@ -74,8 +74,11 @@ struct D65CLI {
               d65 serve [--port <p>] [--display-id <id>] [--apply]
                   Advertise _d65._tcp and solve gains from probe measurements.
 
-              d65 ddc probe
-                  Read brightness, contrast, RGB gain and input over DDC/CI.
+              d65 ddc probe [--display-id <id>]
+                  Read the guarded settings, gains, input, display mode and MCCS version, with timings.
+
+              d65 ddc capabilities [--display-id <id>]
+                  Read and parse the monitor's MCCS capabilities string.
 
               d65 ddc gain --r <n> --g <n> --b <n>
                   Write RGB gain (VCP 0x16/0x18/0x1A) and verify the read-back.
@@ -300,29 +303,60 @@ struct D65CLI {
         #endif
     }
 
-    static func runDDC(_ arguments: [String]) {
+    @MainActor static func runDDC(_ arguments: [String]) {
         #if os(macOS)
         guard let subcommand = arguments.first else {
-            fail("ddc expects probe, gain or writable")
+            fail("ddc expects probe, capabilities, gain or writable")
         }
         let selection = parseOptions(arguments)
-        guard let display = DDCDisplay.matching(displayID: selectedDisplayID(selection)) else {
+        // DDC only exists on external displays, so default to the first external one rather than the main display.
+        let displayID = selection["display-id"] != nil ? selectedDisplayID(selection)
+            : DisplayDirectory.preferred(in: DisplayDirectory.online())?.id ?? CGMainDisplayID()
+        guard let display = DDCDisplay.matching(displayID: displayID) else {
             fail("no unique DDC endpoint for the selected display; use display list and --display-id")
         }
 
-        func describe(_ name: String, _ vcp: UInt8) -> String {
-            guard let value = display.read(vcp) else { return name + ": no reply" }
-            return String(format: "%@: %d / %d", name, value.current, value.maximum)
+        func describe(_ vcp: UInt8) -> String {
+            let label = String(format: "0x%02X %@", vcp, MCCS.name(of: vcp)).padding(toLength: 34, withPad: " ", startingAt: 0)
+            guard let value = display.read(vcp) else { return label + "no reply" }
+            let time = String(format: "%4.0f ms", display.statistics.lastDuration * 1000)
+            let preset = vcp == MCCS.colorPreset ? MCCS.presetName(value.current).map { "  (\($0))" } ?? "" : ""
+            return label + String(format: "%5d / %-5d  ", value.current, value.maximum) + time + preset
+        }
+        func summary() -> String {
+            let stats = display.statistics
+            return String(format: "%d exchanges, %d retries, %d failed, longest %.0f ms",
+                          stats.exchanges, stats.retries, stats.failures, stats.longestDuration * 1000)
         }
 
         switch subcommand {
         case "probe":
-            print(describe("luminance ", DDCDisplay.luminance))
-            print(describe("contrast  ", DDCDisplay.contrast))
-            print(describe("red gain  ", DDCDisplay.redGain))
-            print(describe("green gain", DDCDisplay.greenGain))
-            print(describe("blue gain ", DDCDisplay.blueGain))
-            print(describe("input     ", DDCDisplay.inputSource))
+            for vcp in [MCCS.luminance, MCCS.contrast, MCCS.colorPreset, DDCDisplay.redGain, DDCDisplay.greenGain,
+                        DDCDisplay.blueGain, MCCS.inputSource, MCCS.displayMode, MCCS.vcpVersion] {
+                print(describe(vcp))
+            }
+            print(summary())
+
+        case "capabilities":
+            guard let raw = display.readCapabilitiesString() else {
+                print("no capabilities string (the monitor did not answer, or answered invalid chunks)")
+                print(summary())
+                return
+            }
+            print("raw: \(raw)")
+            guard let capabilities = MCCSCapabilities(raw) else { print("could not parse the string"); return }
+            print("model \(capabilities.model ?? "?")  type \(capabilities.type ?? "?")  MCCS \(capabilities.mccsVersion ?? "?")")
+            for code in capabilities.vcp.keys.sorted() {
+                let values = capabilities.values(for: code).map { list in
+                    "  values " + list.map { value in
+                        code == MCCS.colorPreset ? (MCCS.presetName(value).map { String(format: "%02X=%@", value, $0) } ?? String(format: "%02X", value))
+                            : String(format: "%02X", value)
+                    }.joined(separator: " ")
+                } ?? ""
+                let caution = MCCS.disruptive.contains(code) ? "  [never written automatically]" : ""
+                print(String(format: "  0x%02X %@", code, MCCS.name(of: code)) + values + caution)
+            }
+            print(summary())
 
         case "writable":
             guard let original = display.read(DDCDisplay.redGain)?.current else {

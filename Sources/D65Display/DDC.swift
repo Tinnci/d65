@@ -1,36 +1,12 @@
-#if os(macOS)
-import CoreFoundation
-import CoreGraphics
 import D65Core
 import Foundation
-import IOKit
 
-// Minimal DDC/CI transport, ported from MonitorControl's Arm64DDC (MIT).
+// DDC/CI protocol, ported from MonitorControl's Arm64DDC (MIT).
 // https://github.com/MonitorControl/MonitorControl
 //
-// Packet layout, XOR checksum, retry counts and sleeps are identical; only the
-// display-matching heuristics are omitted.
-
-@_silgen_name("IOAVServiceCreateWithService")
-private func IOAVServiceCreateWithService(_ allocator: CFAllocator?, _ service: io_service_t) -> Unmanaged<CFTypeRef>?
-
-@_silgen_name("IOAVServiceReadI2C")
-private func IOAVServiceReadI2C(
-    _ service: CFTypeRef,
-    _ chipAddress: UInt32,
-    _ offset: UInt32,
-    _ buffer: UnsafeMutableRawPointer,
-    _ size: UInt32
-) -> IOReturn
-
-@_silgen_name("IOAVServiceWriteI2C")
-private func IOAVServiceWriteI2C(
-    _ service: CFTypeRef,
-    _ chipAddress: UInt32,
-    _ dataAddress: UInt32,
-    _ buffer: UnsafeMutableRawPointer,
-    _ size: UInt32
-) -> IOReturn
+// Packet layout, the Get VCP checksum quirk, retry counts and sleeps are kept from the port, which is
+// verified on hardware. This file has no IOKit: the I2C transport is injected, so the protocol, the
+// per-endpoint serialization and the capabilities read are testable with a fake monitor.
 
 /// Injectable I2C boundary; a failed read is distinct from successful zero-valued data.
 public protocol DDCTransport: Sendable {
@@ -38,124 +14,169 @@ public protocol DDCTransport: Sendable {
     func read(count: Int) -> [UInt8]?
 }
 
-private final class AVDDCTransport: DDCTransport, @unchecked Sendable {
-    let service: CFTypeRef
-    init(service: CFTypeRef) { self.service = service }
-    func write(_ packet: [UInt8]) -> Bool {
-        var packet = packet
-        return packet.withUnsafeMutableBytes {
-            IOAVServiceWriteI2C(service, 0x37, 0x51, $0.baseAddress!, UInt32($0.count)) == 0
-        }
+/// Clock and sleep for the protocol's mandatory pauses, injectable so tests do not wait.
+public struct DDCTiming: Sendable {
+    public var sleep: @Sendable (TimeInterval) -> Void
+    public var now: @Sendable () -> TimeInterval
+    /// MCCS asks the host to leave about 50 ms between one exchange's end and the next message.
+    public var minimumInterval: TimeInterval
+
+    public init(sleep: @escaping @Sendable (TimeInterval) -> Void, now: @escaping @Sendable () -> TimeInterval,
+                minimumInterval: TimeInterval = 0.05) {
+        self.sleep = sleep; self.now = now; self.minimumInterval = minimumInterval
     }
-    func read(count: Int) -> [UInt8]? {
-        var reply = [UInt8](repeating: 0, count: count)
-        let result = reply.withUnsafeMutableBytes {
-            IOAVServiceReadI2C(service, 0x37, 0, $0.baseAddress!, UInt32($0.count))
-        }
-        return result == 0 ? reply : nil
-    }
+
+    public static let system = DDCTiming(sleep: { usleep(UInt32(max(0, $0) * 1_000_000)) },
+                                         now: { ProcessInfo.processInfo.systemUptime })
 }
 
-/// DDC/CI access to an external display on Apple silicon.
+/// Per-endpoint counters, so poll cost and bus health can be measured instead of guessed.
+public struct DDCStatistics: Sendable, Equatable {
+    public var exchanges = 0
+    public var retries = 0
+    public var failures = 0
+    public var consecutiveFailures = 0
+    public var lastDuration: TimeInterval = 0
+    public var longestDuration: TimeInterval = 0
+}
+
+/// One DDC/CI endpoint. Every exchange holds the endpoint's lock, so callers on different threads
+/// (the agent's poll, a session's engine, the CLI) can never interleave packets on the same bus.
+/// Share one instance per endpoint; `DDCRegistry` does that on macOS.
 public final class DDCDisplay: @unchecked Sendable {
-    public static let luminance: UInt8 = 0x10
-    public static let contrast: UInt8 = 0x12
+    public static let luminance: UInt8 = MCCS.luminance
+    public static let contrast: UInt8 = MCCS.contrast
     public static let redGain: UInt8 = 0x16
     public static let greenGain: UInt8 = 0x18
     public static let blueGain: UInt8 = 0x1A
-    public static let inputSource: UInt8 = 0x60
+    public static let inputSource: UInt8 = MCCS.inputSource
+
+    private static let displayAddress: UInt8 = 0x6E   // 0x37 << 1
+    private static let hostAddress: UInt8 = 0x51
+    private static let replyChecksumSeed: UInt8 = 0x50
 
     private let transport: any DDCTransport
-    private static let sevenBitAddress: UInt8 = 0x37
-    private static let dataAddress: UInt8 = 0x51
+    private let timing: DDCTiming
+    private let lock = NSLock()
+    private var lastExchangeEnded: TimeInterval?
+    private var stats = DDCStatistics()
+    private var cachedCapabilities: MCCSCapabilities??
 
-    private init(service: CFTypeRef) {
-        self.transport = AVDDCTransport(service: service)
+    public init(transport: any DDCTransport, timing: DDCTiming = .system) {
+        self.transport = transport; self.timing = timing
     }
 
-    public init(transport: any DDCTransport) { self.transport = transport }
+    public var statistics: DDCStatistics { lock.withLock { stats } }
+
+    // MARK: Commands
 
     public func read(_ vcp: UInt8) -> DDCValue? {
-        var send: [UInt8] = [vcp]
-        var reply = [UInt8](repeating: 0, count: 11)
-        guard communicate(send: &send, reply: &reply) else { return nil }
-        guard reply[0] == 0x6E, reply[1] == 0x88, reply[2] == 0x02,
-              reply[3] == 0, reply[4] == vcp else { return nil }
+        guard let reply = exchange([0x01, vcp], replyCount: 11, seed: Self.displayAddress),
+              reply.count >= 11, reply[1] == 0x88, reply[2] == 0x02, reply[3] == 0, reply[4] == vcp else { return nil }
         let maximum = UInt16(reply[6]) * 256 + UInt16(reply[7])
         let current = UInt16(reply[8]) * 256 + UInt16(reply[9])
         return DDCValue(current: current, maximum: maximum)
-    }
-
-    /// Matches the endpoint by EDID, refusing ambiguous matches (including identical serial-less panels).
-    public static func matching(displayID: CGDirectDisplayID) -> DDCDisplay? {
-        var iterator: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("DCPAVServiceProxy"), &iterator) == KERN_SUCCESS else { return nil }
-        defer { IOObjectRelease(iterator) }
-        var matches: [DDCDisplay] = []
-        while case let entry = IOIteratorNext(iterator), entry != 0 {
-            defer { IOObjectRelease(entry) }
-            let location = IORegistryEntryCreateCFProperty(entry, "Location" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String
-            guard location == "External",
-                  let service = IOAVServiceCreateWithService(kCFAllocatorDefault, entry)?.takeRetainedValue() else { continue }
-            var edid = [UInt8](repeating: 0, count: 128)
-            let result = edid.withUnsafeMutableBytes { IOAVServiceReadI2C(service, 0x50, 0, $0.baseAddress!, 128) }
-            guard result == 0, Array(edid.prefix(8)) == [0, 255, 255, 255, 255, 255, 255, 0],
-                  edid.reduce(0, { ($0 + Int($1)) & 255 }) == 0 else { continue }
-            let vendor = UInt32(edid[8]) << 8 | UInt32(edid[9])
-            let product = UInt32(edid[10]) | UInt32(edid[11]) << 8
-            let serial = UInt32(edid[12]) | UInt32(edid[13]) << 8 | UInt32(edid[14]) << 16 | UInt32(edid[15]) << 24
-            if vendor == CGDisplayVendorNumber(displayID), product == CGDisplayModelNumber(displayID),
-               serial == CGDisplaySerialNumber(displayID) { matches.append(DDCDisplay(service: service)) }
-        }
-        return matches.count == 1 ? matches[0] : nil
     }
 
     /// Returns true when the write was acknowledged. Many displays accept the
     /// I2C write but ignore the value; only a sensor measurement establishes the effect.
     @discardableResult
     public func write(_ vcp: UInt8, value: UInt16) -> Bool {
-        var send: [UInt8] = [vcp, UInt8(value >> 8), UInt8(value & 255)]
-        var reply: [UInt8] = []
-        return communicate(send: &send, reply: &reply)
+        exchange([0x03, vcp, UInt8(value >> 8), UInt8(value & 255)], replyCount: nil,
+                 seed: Self.displayAddress ^ Self.hostAddress) != nil
     }
 
-    private func communicate(send: inout [UInt8], reply: inout [UInt8]) -> Bool {
-        let dataAddress = Self.dataAddress
-        var packet: [UInt8] = [UInt8(0x80 | (send.count + 1)), UInt8(send.count)] + send + [0]
-        packet[packet.count - 1] = Self.checksum(
-            chk: send.count == 1 ? Self.sevenBitAddress << 1 : Self.sevenBitAddress << 1 ^ dataAddress,
-            data: &packet,
-            start: 0,
-            end: packet.count - 2
-        )
+    /// The MCCS capabilities string, read once in 32-byte chunks and cached for this endpoint.
+    /// Nil when the monitor does not answer the request or the string does not parse.
+    public func capabilities() -> MCCSCapabilities? {
+        if let cached = lock.withLock({ cachedCapabilities }) { return cached }
+        let parsed = readCapabilitiesString().flatMap(MCCSCapabilities.init)
+        lock.withLock { cachedCapabilities = .some(parsed) }
+        return parsed
+    }
 
-        var success = false
-        for _ in 0..<4 {
-            for _ in 0..<2 {
-                usleep(10_000)
-                success = transport.write(packet)
-            }
-
-            if !reply.isEmpty {
-                usleep(50_000)
-                success = false
-                if let received = transport.read(count: reply.count), received.count == reply.count {
-                    reply = received
-                    success = Self.checksum(chk: 0x50, data: &reply, start: 0, end: reply.count - 2)
-                        == reply[reply.count - 1]
+    /// Raw capabilities string, without caching. Exposed for diagnostics.
+    public func readCapabilitiesString(maximumLength: Int = 4096) -> String? {
+        var bytes: [UInt8] = []
+        // The spec checksums the request with the host address; the Get VCP quirk is tried as a fallback.
+        var seeds: [UInt8] = [Self.displayAddress ^ Self.hostAddress, Self.displayAddress]
+        while bytes.count < maximumLength {
+            let offset = UInt16(bytes.count)
+            var chunk: [UInt8]?
+            for seed in seeds {
+                if let reply = exchange([0xF3, UInt8(offset >> 8), UInt8(offset & 255)], replyCount: 38, seed: seed),
+                   let data = Self.capabilitiesData(reply, offset: offset) {
+                    chunk = data
+                    seeds = [seed]
+                    break
                 }
             }
-
-            if success { return true }
-            usleep(20_000)
+            guard let chunk else { return nil }
+            if chunk.isEmpty { break }
+            bytes += chunk
         }
-        return success
+        guard !bytes.isEmpty else { return nil }
+        return String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
     }
 
-    private static func checksum(chk: UInt8, data: inout [UInt8], start: Int, end: Int) -> UInt8 {
-        var value = chk
-        for index in start...end { value ^= data[index] }
-        return value
+    private static func capabilitiesData(_ reply: [UInt8], offset: UInt16) -> [UInt8]? {
+        let length = Int(reply[1] & 0x7F)
+        guard reply[2] == 0xE3, length >= 3,
+              UInt16(reply[3]) << 8 | UInt16(reply[4]) == offset else { return nil }
+        return Array(reply[5..<(2 + length)])
+    }
+
+    // MARK: Exchange
+
+    /// One request/reply under the endpoint lock, with spacing, retries and a validated reply.
+    /// Returns the reply (empty for a write-only command), or nil after all attempts failed.
+    private func exchange(_ payload: [UInt8], replyCount: Int?, seed: UInt8) -> [UInt8]? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let last = lastExchangeEnded {
+            let wait = timing.minimumInterval - (timing.now() - last)
+            if wait > 0 { timing.sleep(wait) }
+        }
+        let started = timing.now()
+        var packet: [UInt8] = [0x80 | UInt8(payload.count)] + payload
+        packet.append(packet.reduce(seed, ^))
+
+        var result: [UInt8]?
+        var attempts = 0
+        for _ in 0..<4 {
+            attempts += 1
+            var written = false
+            for _ in 0..<2 {
+                timing.sleep(0.01)
+                written = transport.write(packet)
+            }
+            if let replyCount {
+                timing.sleep(0.05)
+                if let received = transport.read(count: replyCount), let valid = Self.validated(received) {
+                    result = valid
+                }
+            } else if written {
+                result = []
+            }
+            if result != nil { break }
+            timing.sleep(0.02)
+        }
+
+        let ended = timing.now()
+        lastExchangeEnded = ended
+        stats.exchanges += 1
+        stats.retries += attempts - 1
+        stats.lastDuration = ended - started
+        stats.longestDuration = max(stats.longestDuration, stats.lastDuration)
+        if result == nil { stats.failures += 1; stats.consecutiveFailures += 1 } else { stats.consecutiveFailures = 0 }
+        return result
+    }
+
+    /// A reply is `0x6E, 0x80|length, payload…, checksum`, checksummed from the 0x50 seed.
+    private static func validated(_ reply: [UInt8]) -> [UInt8]? {
+        guard reply.count >= 3, reply[0] == displayAddress, reply[1] & 0x80 != 0 else { return nil }
+        let end = 2 + Int(reply[1] & 0x7F)
+        guard end < reply.count, reply[0..<end].reduce(replyChecksumSeed, ^) == reply[end] else { return nil }
+        return Array(reply[...end])
     }
 }
-#endif

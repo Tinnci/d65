@@ -46,7 +46,7 @@ private struct DisplayRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.display.name).fontWeight(.semibold)
                 Text(row.statusLine).font(.caption).monospacedDigit()
-                    .foregroundStyle(row.error != nil ? Theme.critical : row.stale != nil ? Theme.warn : .secondary)
+                    .foregroundStyle(row.error != nil ? Theme.critical : row.stale != nil || row.unverified != nil ? Theme.warn : .secondary)
                     .lineLimit(2)
             }
             Spacer(minLength: 8)

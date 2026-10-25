@@ -41,6 +41,34 @@ Phantom VCPs (implausible maximum, no real control): `0x0B` (max 24028), `0x0D`,
 Inert: `0x6C` accepts a write (readback 100) but changes nothing measurable; `0x6E` likely the
 same. Unverified: `0x52`, `0xDC`.
 
+> **Correction (MCCS 2.2a names, capabilities string below).** `0x0B` is *Colour Temperature
+> Increment* (the scale for `0x0C`), not saturation; saturation is `0x8A`. `0x6C`/`0x6E`/`0x70` are
+> red/green/blue **black level**, so their white-patch effect test could not show an effect either
+> way. `0x52` is *Active Control* and `0xDC` *Display Mode*. The panel's own capabilities string does
+> not list `0x0B`, `0x0C`, `0x6C`, `0x6E`, `0x70` or `0x8A`, which explains the phantom and inert
+> results better than plausibility of the maximum.
+
+### Capabilities string (2026-10-25, USB-C)
+
+`d65 ddc capabilities` reads it in 8 exchanges with no retries:
+
+```
+(prot(monitor)type(lcd)MStarcmds(01 02 03 07 0C E3 F3)vcp(02 04 05 08 10 12 14(05 08 0B 0C) 16 18 1A
+52 60( 11 12 0F) AA(01 02) AC AE B2 B6 C6 C8 C9 D6(01 04 05) DC(00 02 03 05 ) DF FD)mccs_ver(2.1)mswhql(1))
+```
+
+- MStar controller, MCCS 2.1 (`0xDF` reads 0x0201). The firmware glues "MStar" onto the `cmds` key;
+  the parser recovers it.
+- Presets offered: 6500 K (current, `05`), 9300 K, User 1, User 2. No sRGB preset.
+- `0x02` New Control Value and `0x52` Active Control are advertised, so on-screen-menu changes could
+  be detected with one read instead of polling each setting. Not yet tried.
+- **No colour-temperature request (`0x0C`) is advertised.** Treat it as not a hardware white-point
+  path on this panel unless a sweep proves otherwise.
+
+`d65 ddc probe` on the same day: luminance 30/100, contrast 50, preset 5 (6500 K), gains 49/46/42,
+input 0x0F (DisplayPort 1), display mode 0. Every read took 83–94 ms with no retries, so a poll of
+the three guarded settings costs about 0.3 s of bus time, serialized per endpoint.
+
 **Contrast is part of the calibration state.** Changing it shifts colour by more than the
 corrections we apply, so a stored correction is invalid once contrast changes.
 

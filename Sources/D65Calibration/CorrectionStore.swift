@@ -1,4 +1,5 @@
 import D65Core
+import D65Display
 import Foundation
 
 /// A kept correction, valid for one display identity in one mode with the monitor settings it was measured at.
@@ -31,18 +32,52 @@ public struct StoredCorrection: Codable, Sendable, Equatable, Identifiable {
     }
 
     /// Monitor settings that move chromaticity by more than a typical correction (experiments §12).
-    public static let invalidatingSettings = ["contrast", "preset"]
+    public static let invalidatingSettings = MCCS.guardedSettings.map(\.name)
 
-    /// Why this correction may no longer describe the display, or nil if it still applies.
-    public func staleReason(modeSignature current: String, monitorSettings now: [String: UInt16]) -> StaleReason? {
-        if current != modeSignature { return .modeChanged(from: modeSignature, to: current) }
+    /// The settings this correction can be checked against: those that were readable when it was made.
+    public var guardedSettings: [String: UInt16] { monitorSettings.filter { Self.invalidatingSettings.contains($0.key) } }
+
+    /// Compare the display's current state with the one the correction was measured in.
+    /// A setting that can't be read now is reported as unverified, never as unchanged.
+    public func check(modeSignature current: String, monitor: MonitorReading) -> GuardVerdict {
+        if current != modeSignature { return .changed(.modeChanged(from: modeSignature, to: current)) }
+        let guarded = guardedSettings
+        guard !guarded.isEmpty else { return .unguarded }
+        let values: [String: UInt16?]
+        switch monitor {
+        case .unreachable: return .unverified("Monitor not answering over DDC")
+        case .values(let read): values = read
+        }
+        var unreadable: [String] = []
         for name in Self.invalidatingSettings {
-            if let then = monitorSettings[name], let value = now[name], then != value {
-                return .settingChanged(name: name, from: then, to: value)
+            guard let then = guarded[name] else { continue }
+            switch values[name] {
+            case .some(.some(let now)) where now != then:
+                return .changed(.settingChanged(name: name, from: then, to: now))
+            case .some(.some): continue
+            default: unreadable.append(name)
             }
         }
-        return nil
+        return unreadable.isEmpty ? .unchanged : .unverified("Couldn’t read \(unreadable.joined(separator: ", "))")
     }
+}
+
+/// What the agent could read from the monitor just now.
+public enum MonitorReading: Sendable, Equatable {
+    /// No DDC endpoint answered for this display.
+    case unreachable
+    /// One entry per guarded setting; nil where that read failed.
+    case values([String: UInt16?])
+}
+
+/// The state guard's three answers, plus the case where nothing was recorded to compare.
+public enum GuardVerdict: Sendable, Equatable {
+    case unchanged
+    case changed(StaleReason)
+    /// The correction may still be valid, but D65 can't confirm it right now.
+    case unverified(String)
+    /// No monitor settings were readable at calibration (no DDC), so monitor-side changes can't be detected.
+    case unguarded
 }
 
 public enum StaleReason: Sendable, Equatable {

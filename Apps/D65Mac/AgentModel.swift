@@ -13,9 +13,13 @@ import SwiftUI
         let display: DisplayInfo
         var correction: StoredCorrection?
         var hold: CorrectionHold.State
-        var stale: StaleReason?
+        /// Nil until the first poll has read the monitor.
+        var verdict: GuardVerdict?
         var error: String?
         var id: String { display.identity }
+
+        var stale: StaleReason? { if case .changed(let reason)? = verdict { reason } else { nil } }
+        var unverified: String? { if case .unverified(let reason)? = verdict { reason } else { nil } }
 
         var glyph: WhitePointGlyph.Mode {
             if error != nil { return .critical }
@@ -32,7 +36,9 @@ import SwiftUI
             switch hold {
             case .paused: return "Correction off · ΔE00 \(Format.deltaE(correction.deltaE)) when on"
             case .previewing: return "Previewing"
-            default: return "Corrected · ΔE00 \(Format.deltaE(correction.deltaE)) · \(Format.relative(correction.createdAt))"
+            default:
+                let line = "Corrected · ΔE00 \(Format.deltaE(correction.deltaE)) · \(Format.relative(correction.createdAt))"
+                return unverified.map { line + "\nCan’t verify monitor settings: \($0.lowercased())" } ?? line
             }
         }
     }
@@ -45,7 +51,9 @@ import SwiftUI
     let store: CorrectionStore
     let recordDirectory: URL
     private var holds: [String: (displayID: UInt32, hold: CorrectionHold)] = [:]
-    private var monitorSettings: [String: [String: UInt16]] = [:]
+    private var readings: [String: MonitorReading] = [:]
+    /// DDC endpoints often answer only a few seconds after wake; polls wait until then.
+    private var pollPausedUntil = Date.distantPast
     /// Displays whose correction the user turned off; survives reconfiguration, not relaunch.
     private var userPaused: Set<String> = []
     private var calibrating: String?
@@ -60,6 +68,10 @@ import SwiftUI
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refresh(reapply: true) }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
+                                                          object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.didWake() }
         }
         poll = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pollMonitorSettings() }
@@ -93,24 +105,44 @@ import SwiftUI
         }
         rows = online.map { display in
             let correction = store.correction(for: display.identity, modeSignature: display.modeSignature)
-            let stale = correction?.staleReason(modeSignature: display.modeSignature,
-                                                monitorSettings: monitorSettings[display.identity] ?? [:])
+            // Mode is known without DDC, so a mode change shows before the first poll.
+            let verdict = correction.flatMap { correction -> GuardVerdict? in
+                if let reading = readings[display.identity] {
+                    return correction.check(modeSignature: display.modeSignature, monitor: reading)
+                }
+                let modeOnly = correction.check(modeSignature: display.modeSignature, monitor: .values([:]))
+                if case .changed = modeOnly { return modeOnly }
+                return correction.guardedSettings.isEmpty ? .unguarded : nil
+            }
             return Row(display: display, correction: correction, hold: holds[display.identity]?.hold.state ?? .none,
-                       stale: stale, error: rows.first { $0.id == display.identity }?.error)
+                       verdict: verdict, error: rows.first { $0.id == display.identity }?.error)
         }
         .sorted { !$0.display.isBuiltin && $1.display.isBuiltin }
     }
 
+    /// Read guarded settings for displays whose correction records any. Skipped during a session
+    /// (the engine owns the bus), for sleeping displays, and briefly after wake.
     private func pollMonitorSettings() {
-        let targets = rows.filter { $0.correction != nil }.map { ($0.display.identity, $0.display.id) }
+        guard calibrating == nil, Date() >= pollPausedUntil else { return }
+        let targets = rows.filter { $0.correction.map { !$0.guardedSettings.isEmpty } == true && CGDisplayIsAsleep($0.display.id) == 0 }
+            .map { ($0.display.identity, $0.display.id) }
         guard !targets.isEmpty else { return }
         Task.detached(priority: .utility) {
-            var results: [String: [String: UInt16]] = [:]
-            for (identity, id) in targets { results[identity] = DisplayDirectory.monitorSettings(displayID: id) }
+            var results: [String: MonitorReading] = [:]
+            for (identity, id) in targets { results[identity] = DisplayDirectory.monitorReading(displayID: id) }
             await MainActor.run { [results] in
-                self.monitorSettings.merge(results) { $1 }
+                self.readings.merge(results) { $1 }
                 self.refresh()
             }
+        }
+    }
+
+    private func didWake() {
+        DisplayDirectory.refreshMonitorControl()
+        pollPausedUntil = Date().addingTimeInterval(5)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(6))
+            self.pollMonitorSettings()
         }
     }
 
@@ -194,7 +226,7 @@ import SwiftUI
             holds[identity] = nil
         }
         calibrating = nil
-        monitorSettings.removeAll()
+        readings.removeAll()
         refresh()
         pollMonitorSettings()
     }

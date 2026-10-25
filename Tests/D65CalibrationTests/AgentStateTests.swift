@@ -104,15 +104,32 @@ private final class MemoryBackend: TransferTableBackend, @unchecked Sendable {
         XCTAssertNil(CorrectionStore(url: url).correction(for: "uuid-1", modeSignature: "3840×2160@60"))
     }
 
-    func testStaleness() {
+    func testGuardDistinguishesUnchangedChangedAndUnverified() {
         let r = record()
         let stored = StoredCorrection(record: r, gains: r.bestGains!)
-        XCTAssertNil(stored.staleReason(modeSignature: "3840×2160@60", monitorSettings: ["contrast": 50, "preset": 5]))
-        XCTAssertNil(stored.staleReason(modeSignature: "3840×2160@60", monitorSettings: [:]), "unknown is not stale")
-        XCTAssertEqual(stored.staleReason(modeSignature: "3840×2160@60", monitorSettings: ["contrast": 65]),
-                       .settingChanged(name: "contrast", from: 50, to: 65))
-        XCTAssertEqual(stored.staleReason(modeSignature: "2560×1440@60", monitorSettings: [:]),
-                       .modeChanged(from: "3840×2160@60", to: "2560×1440@60"))
+        let mode = "3840×2160@60"
+        XCTAssertEqual(stored.guardedSettings, ["contrast": 50, "preset": 5])
+        XCTAssertEqual(stored.check(modeSignature: mode, monitor: .values(["contrast": 50, "preset": 5, "displayMode": nil])),
+                       .unchanged, "a setting not recorded at calibration is not required now")
+        XCTAssertEqual(stored.check(modeSignature: mode, monitor: .values(["contrast": 65, "preset": nil])),
+                       .changed(.settingChanged(name: "contrast", from: 50, to: 65)), "a change wins over an unreadable value")
+        XCTAssertEqual(stored.check(modeSignature: mode, monitor: .values(["contrast": 50, "preset": nil])),
+                       .unverified("Couldn’t read preset"))
+        XCTAssertEqual(stored.check(modeSignature: mode, monitor: .values([:])), .unverified("Couldn’t read contrast, preset"))
+        XCTAssertEqual(stored.check(modeSignature: mode, monitor: .unreachable), .unverified("Monitor not answering over DDC"))
+        XCTAssertEqual(stored.check(modeSignature: "2560×1440@60", monitor: .unreachable),
+                       .changed(.modeChanged(from: mode, to: "2560×1440@60")), "mode needs no DDC")
+    }
+
+    func testCorrectionWithoutMonitorSettingsIsUnguardedNotVerified() {
+        var r = record()
+        r = ExperimentRecord(startedAt: Date(), softwareRevision: "t", configuration: .init(mode: .calibrate),
+            display: DisplayContext(identity: "uuid-2", name: "HDMI panel", displayID: 3, width: 1920, height: 1080,
+                refreshRate: 60, monitorSettings: ["brightness": 30]),
+            probe: ProbeIdentity(model: "p", build: "b"))
+        let stored = StoredCorrection(record: r, gains: RGBGains(r: 1, g: 1, b: 0.9))
+        XCTAssertEqual(stored.check(modeSignature: "1920×1080@60", monitor: .unreachable), .unguarded,
+                       "brightness is recorded but never guarded")
     }
 }
 
