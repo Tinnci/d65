@@ -6,11 +6,12 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 
 The CLI and Mac app now share `D65Calibration` through `D65MacRuntime`. Sessions are main-actor
 isolated, restore captured gamma tables, distinguish termination outcomes and save schema-v1 JSON
-records. Protocol v2 requires rebuilding the local probe; legacy sessions are rejected. Tests cover
+records. Protocol v3 requires rebuilding the local probe; legacy sessions are rejected. Tests cover
 failure/cancellation paths, consecutive sessions, connection isolation, DDC read errors and measured
 brightness restoration. See [architecture.md](architecture.md) and [implementation.md](implementation.md).
-No new physical calibration measurements have been taken for this refactor. New white-error metrics
-normalize Y=1 and must not be compared directly with the historical absolute-Y numbers below.
+The first real run at revision `b219ab6` converged in one pass: normalized ΔE00 4.56 → 1.40,
+with fitted gamma 2.114 and no reported restoration errors. See experiment §13. New white-error
+metrics normalize Y=1 and must not be compared directly with historical absolute-Y numbers below.
 
 ## Verified working
 

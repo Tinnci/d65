@@ -272,6 +272,35 @@ Two results, each useful:
 
 Both restores returned to baseline (no WARNING printed).
 
+## 13. First real session after the shared-engine and app changes
+
+Revision `b219ab6`, 2026-10-25: `d65 serve --apply`, selected K27 at 3840×2160 / 60 Hz,
+USB-C, iPhone Air (`iPhone18,4`) running iOS 27.2. The newly signed D65 Probe included the
+local private ALS adapter and connected using protocol v3. The placement gate settled before
+sampling. Monitor readbacks: brightness 30, contrast 50, preset 5, input 15; no DDC gain or
+brightness writes were requested.
+
+The session collected all twelve patches, generally eight accepted readings each (grey40 had
+nine), followed by one verification white. Black/ambient Y was 1.29.
+
+```
+gamma fit     2.114178
+baseline      emitted Y=142.44, x=0.3091, y=0.3209
+              normalized ΔE00 4.560329
+pass 1        R=0.980579 G=1.000000 B=0.927274
+verify        emitted Y=141.71, normalized ΔE00 1.397355
+outcome       converged in one pass
+restoration   no errors; follow-up probe showed identical linear R/G/B ramps, 1024 entries
+```
+
+These errors use **Y=1 normalization**, unlike the absolute-Y errors in §§1–12. They must not
+be compared numerically with the old 17–24 ΔE00 baselines. This demonstrates the new workflow
+on real hardware; it does not validate the ALS against a reference colorimeter.
+
+The session ran for 33.35 seconds and restored its starting gamma tables. It did not retain a
+correction. Raw tagged attempts, measurements, gains, lifecycle and outcome are saved locally in
+`local/experiments/A0E8B5AC-4CAF-4D10-864A-0474A714C314.json` (ignored working data).
+
 ## Confounds to control in future runs
 
 | Confound | Effect | Mitigation |
