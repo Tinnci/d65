@@ -223,7 +223,7 @@ struct D65CLI {
     static func runDDC(_ arguments: [String]) {
         #if os(macOS)
         guard let subcommand = arguments.first else {
-            fail("ddc expects probe or gain")
+            fail("ddc expects probe, gain or writable")
         }
         guard let display = DDCDisplay.external() else {
             fail("no external display with a DCPAVServiceProxy found")
@@ -242,6 +242,23 @@ struct D65CLI {
             print(describe("green gain", DDCDisplay.greenGain))
             print(describe("blue gain ", DDCDisplay.blueGain))
             print(describe("input     ", DDCDisplay.inputSource))
+
+        case "writable":
+            guard let original = display.read(DDCDisplay.redGain)?.current else {
+                fail("could not read red gain")
+            }
+            let probeValue = original > 0 ? original - 1 : original + 1
+            _ = display.write(DDCDisplay.redGain, value: probeValue)
+            usleep(300_000)
+            let after = display.read(DDCDisplay.redGain)?.current
+            _ = display.write(DDCDisplay.redGain, value: original)
+            usleep(200_000)
+            let restored = display.read(DDCDisplay.redGain)?.current
+            if after == probeValue {
+                print("writable: red \(original) -> \(probeValue) accepted, restored to \(restored.map(String.init) ?? "?")")
+            } else {
+                print("read-only: wrote \(probeValue), read back \(after.map(String.init) ?? "nil"); value ignored by the monitor")
+            }
 
         case "gain":
             let options = parseOptions(arguments)

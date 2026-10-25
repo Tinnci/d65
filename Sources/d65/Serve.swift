@@ -141,25 +141,42 @@ final class CalibrationServer {
         }
     }
 
+    private struct Patch {
+        let name: String
+        let color: NSColor
+    }
+
+    private let patches: [Patch] = [
+        Patch(name: "black", color: .black),
+        Patch(name: "white", color: .white),
+        Patch(name: "red", color: .red),
+        Patch(name: "green", color: .green),
+        Patch(name: "blue", color: .blue),
+        Patch(name: "yellow", color: .yellow),
+        Patch(name: "cyan", color: .cyan),
+        Patch(name: "magenta", color: .magenta),
+    ]
+
     private func startSession() {
         guard !sessionRunning else { return }
         sessionRunning = true
         samples.removeAll()
-        print("session: black patch")
-        DispatchQueue.main.async { self.patch.show(.black) }
-        send(.progress(phase: "black", fraction: 0))
+        print("session: \(patches.count) patches")
+        runPatch(at: 0)
+    }
 
-        after(2.5) {
-            self.send(.progress(phase: "done", fraction: 0))
-            print("session: white patch")
-            DispatchQueue.main.async { self.patch.show(.white) }
-            self.send(.progress(phase: "white", fraction: 0))
+    private func runPatch(at index: Int) {
+        guard index < patches.count else {
+            finishMeasurement()
+            return
         }
+        let patch = patches[index]
+        DispatchQueue.main.async { self.patch.show(patch.color) }
+        send(.progress(phase: patch.name, fraction: Double(index) / Double(patches.count)))
 
-        after(5.5) {
+        after(2.0) {
             self.send(.progress(phase: "done", fraction: 0))
-            DispatchQueue.main.async { self.patch.close() }
-            self.finishSession()
+            self.runPatch(at: index + 1)
         }
     }
 
@@ -173,7 +190,6 @@ final class CalibrationServer {
         )
     }
 
-    /// Drop readings whose luminance is far from the median, then average.
     private func filtered(_ list: [MeasurementSample]) -> [MeasurementSample] {
         guard list.count >= 3 else { return list }
         let sorted = list.map(\.xyz.y).sorted()
@@ -182,35 +198,80 @@ final class CalibrationServer {
         return list.filter { abs($0.xyz.y - median) <= tolerance }
     }
 
-    private func finishSession() {
-        defer { sessionRunning = false }
-        activeConnection = nil
-
-        let blackSamples = samples["black"] ?? []
-        let whiteSamples = samples["white"] ?? []
-        print("session: black=\(blackSamples.count) white=\(whiteSamples.count) samples")
-
-        guard let black = mean(filtered(blackSamples)), let white = mean(filtered(whiteSamples)) else {
-            print("session: no samples — is the probe pointed at the screen?")
-            return
-        }
-
-        print(String(format: "       black Y=%.2f   white Y=%.2f", black.y, white.y))
-
-        let emitted = XYZ(
-            x: max(white.x - black.x, 0),
-            y: max(white.y - black.y, 0),
-            z: max(white.z - black.z, 0)
+    private func subtract(_ lhs: XYZ, _ rhs: XYZ) -> XYZ {
+        XYZ(
+            x: max(lhs.x - rhs.x, 0),
+            y: max(lhs.y - rhs.y, 0),
+            z: max(lhs.z - rhs.z, 0)
         )
-        guard emitted.y > 1 else {
-            print("session: emitted luminance too low (\(emitted.y)) — raise display brightness or bring the phone closer")
+    }
+
+    private func describe(_ name: String, _ value: XYZ) {
+        let chroma = value.chromaticity
+        let cct = chroma?.correlatedColorTemperature() ?? 0
+        print(String(
+            format: "  %-8@ Y=%8.2f  x=%.4f y=%.4f  CCT=%5.0f K",
+            name as NSString, value.y, chroma?.x ?? 0, chroma?.y ?? 0, cct
+        ))
+    }
+
+    private func finishMeasurement() {
+        let ambient = mean(filtered(samples["black"] ?? []))
+        guard let ambient else {
+            print("measurement: no black samples — is the probe pointed at the screen?")
+            sessionRunning = false
+            return
+        }
+        print(String(format: "ambient Y=%.2f", ambient.y))
+
+        var emitted: [String: XYZ] = [:]
+        for patch in patches where patch.name != "black" {
+            guard let raw = mean(filtered(samples[patch.name] ?? [])) else { continue }
+            let value = subtract(raw, ambient)
+            // Blue has very little luminance; allow it through rather than
+            // requiring the patch to out-shine the room.
+            if value.y > 0.3 { emitted[patch.name] = value }
+        }
+
+        for name in ["white", "red", "green", "blue", "yellow", "cyan", "magenta"] {
+            if let value = emitted[name] { describe(name, value) }
+        }
+
+        // Additivity: secondaries should be the sum of their primaries if the
+        // panel is linear in this range. Large errors mean tone response or
+        // cross-channel leakage, neither of which a diagonal gain can fix.
+        func additivity(_ secondary: String, _ a: String, _ b: String) {
+            guard let s = emitted[secondary], let x = emitted[a], let y = emitted[b] else { return }
+            let sum = XYZ(x: x.x + y.x, y: x.y + y.y, z: x.z + y.z)
+            let deltaE = ColorDifference.deltaE00(s, sum)
+            print(String(format: "  additivity %@ vs %@+%@: ΔE00 %.1f", secondary, a, b, deltaE))
+        }
+        func comparePrimary(_ name: String, to reference: Chromaticity, label: String) {
+            guard let value = emitted[name], let chroma = value.chromaticity else { return }
+            let dx = chroma.x - reference.x
+            let dy = chroma.y - reference.y
+            print(String(format: "  %@ vs %@: Δx=%+.4f Δy=%+.4f", name, label, dx, dy))
+        }
+        comparePrimary("red", to: Chromaticity(x: 0.640, y: 0.330), label: "sRGB")
+        comparePrimary("red", to: Chromaticity(x: 0.680, y: 0.320), label: "P3")
+        comparePrimary("green", to: Chromaticity(x: 0.300, y: 0.600), label: "sRGB")
+        comparePrimary("green", to: Chromaticity(x: 0.265, y: 0.690), label: "P3")
+        comparePrimary("blue", to: Chromaticity(x: 0.150, y: 0.060), label: "sRGB/P3")
+
+        additivity("yellow", "red", "green")
+        additivity("cyan", "green", "blue")
+        additivity("magenta", "red", "blue")
+
+        guard let white = emitted["white"], white.y > 1 else {
+            print("measurement: white too dim — raise display brightness")
+            sessionRunning = false
             return
         }
 
-        let gains = WhitePointSolver.gains(measuredWhite: emitted)
-        let target = Chromaticity.d65.xyz(luminance: emitted.y)
-        let predicted = WhitePointSolver.predictedWhite(after: gains, measuredWhite: emitted)
-        let pre = ColorDifference.deltaE00(emitted, target)
+        let gains = WhitePointSolver.gains(measuredWhite: white)
+        let target = Chromaticity.d65.xyz(luminance: white.y)
+        let predicted = WhitePointSolver.predictedWhite(after: gains, measuredWhite: white)
+        let pre = ColorDifference.deltaE00(white, target)
         let post = ColorDifference.deltaE00(predicted, target)
         let verdict = QualityGate().verdict(
             preDeltaE: pre,
@@ -218,32 +279,55 @@ final class CalibrationServer {
             luminanceScale: gains.luminanceScale
         )
 
-        let cct = emitted.chromaticity?.correlatedColorTemperature() ?? 0
-        print(String(format: "       emitted X=%.2f Y=%.2f Z=%.2f", emitted.x, emitted.y, emitted.z))
-        if let chroma = emitted.chromaticity {
-            print(String(format: "       chromaticity x=%.4f y=%.4f", chroma.x, chroma.y))
-        }
-        print(String(format: "PATCH  emitted Y=%.2f  CCT≈%.0f K", emitted.y, cct))
-        print(String(format: "       gains R=%.4f G=%.4f B=%.4f  ΔE00 %.2f → %.2f  verdict=%@",
+        print(String(format: "white  CCT≈%.0f K  gains R=%.4f G=%.4f B=%.4f  ΔE00 %.2f → %.2f  verdict=%@",
+                     white.chromaticity?.correlatedColorTemperature() ?? 0,
                      gains.r, gains.g, gains.b, pre, post, verdict.rawValue))
 
-        switch verdict {
-        case .improved:
-            if applyToDisplay {
-                do {
-                    try output.apply(gains)
-                    print("       applied (held while this process runs)")
-                } catch {
-                    print("       apply failed: \(error)")
-                }
-            } else {
-                print("       would apply (use --apply)")
-            }
-        case .confirmed:
-            print("       display already within tolerance — nothing applied")
-        case .rejected:
-            print("       rejected by quality gate — nothing applied")
+        guard verdict == .improved, applyToDisplay else {
+            print(verdict == .improved ? "       would apply (use --apply)" : "       not applied")
+            DispatchQueue.main.async { self.patch.close() }
+            sessionRunning = false
+            return
         }
+
+        do {
+            try output.apply(gains)
+            print("       applied — re-measuring white without moving the phone")
+        } catch {
+            print("       apply failed: \(error)")
+            sessionRunning = false
+            return
+        }
+
+        // Verify in the same session, so geometry cannot change.
+        samples.removeAll()
+        DispatchQueue.main.async { self.patch.show(.white) }
+        send(.progress(phase: "verify", fraction: 1))
+        after(2.5) {
+            self.send(.progress(phase: "done", fraction: 0))
+            DispatchQueue.main.async { self.patch.close() }
+            self.finishVerification(ambient: ambient, before: pre)
+        }
+    }
+
+    private func finishVerification(ambient: XYZ, before: Double) {
+        defer { sessionRunning = false }
+        guard let raw = mean(filtered(samples["verify"] ?? [])), raw.y > ambient.y else {
+            print("verify: no samples")
+            return
+        }
+        let after = subtract(raw, ambient)
+        let target = Chromaticity.d65.xyz(luminance: after.y)
+        let deltaE = ColorDifference.deltaE00(after, target)
+        print(String(
+            format: "VERIFY after apply: Y=%.2f  x=%.4f y=%.4f  CCT≈%.0f K  ΔE00 %.2f → %.2f",
+            after.y,
+            after.chromaticity?.x ?? 0,
+            after.chromaticity?.y ?? 0,
+            after.chromaticity?.correlatedColorTemperature() ?? 0,
+            before,
+            deltaE
+        ))
     }
 
     private func send(_ message: CalibrationMessage, to connection: NWConnection) {
