@@ -1,0 +1,66 @@
+name: D65
+options:
+  bundleIdPrefix: dev.tinnci
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+
+packages:
+  D65:
+    path: .
+
+targets:
+  D65Mac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Apps/D65Mac
+    dependencies:
+      - package: D65
+        product: D65Core
+      - package: D65
+        product: D65Display
+      - package: D65
+        product: D65Link
+    info:
+      path: Apps/D65Mac/Info.plist
+      properties:
+        CFBundleDisplayName: D65
+        CFBundleShortVersionString: "0.1.0"
+        LSApplicationCategoryType: public.app-category.utilities
+        NSLocalNetworkUsageDescription: D65 finds your iPhone probe on the local network.
+        NSBonjourServices:
+          - _d65._tcp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tinnci.d65
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+
+  D65Probe:
+    type: application
+    platform: iOS
+    sources:
+      - path: Apps/D65Probe
+    dependencies:
+      - package: D65
+        product: D65Core
+      - package: D65
+        product: D65Link
+      - package: D65
+        product: D65Measurement
+    info:
+      path: Apps/D65Probe/Info.plist
+      properties:
+        CFBundleDisplayName: D65 Probe
+        CFBundleShortVersionString: "0.1.0"
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: D65 Probe sends measurements to the Mac on your local network.
+        NSBonjourServices:
+          - _d65._tcp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tinnci.d65.probe
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
