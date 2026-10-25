@@ -35,9 +35,10 @@ import Foundation
                 throw CalibrationError.invalidConfiguration
             }
             // The caller must supply XYZ for its declared observer. Never substitute another observer's D65.
-            guard configuration.observer == probe.observer, let target = configuration.observer.d65 else {
-                throw CalibrationError.invalidConfiguration
-            }
+            guard configuration.observer == probe.observer else { throw CalibrationError.invalidConfiguration }
+            // D65, or the probe-observer white a different viewer sees as D65 on this display's primaries.
+            let target = try configuration.whiteTarget()
+            record.whiteTarget = target
             let metric = configuration.metric
             try Task.checkCancellation()
             try display.begin()
@@ -186,7 +187,7 @@ import Foundation
                          display: any CalibrationDisplay, probe: any CalibrationProbe,
                          presenter: any PatchPresenter, clock: any CalibrationClock) async throws {
         let config = record.configuration
-        let metric = config.metric, target = config.observer.d65 ?? .d65
+        let metric = config.metric, target = try config.whiteTarget()
         let before = metric.whiteError(white, target: target)
         if before <= config.gate.minimumPreCorrectionDeltaE {
             record.outcome = .confirmed
@@ -291,7 +292,7 @@ import Foundation
 
     /// The baseline and best measured white under every metric, so a session can be compared in each.
     static func metricReports(baseline: XYZ?, record: ExperimentRecord) -> [MetricReport]? {
-        guard let baseline, let target = record.configuration.observer.d65 else { return nil }
+        guard let baseline, let target = try? record.configuration.whiteTarget() else { return nil }
         let chosen = record.configuration.metric
         let bestPass = record.bestGains.flatMap { gains in record.passes.last { $0.gains == gains } }
         let best = bestPass?.measured ?? baseline

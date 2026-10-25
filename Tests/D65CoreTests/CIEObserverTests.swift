@@ -5,6 +5,8 @@ import XCTest
 final class CIEObserverTests: XCTestCase {
     func testBundledDatasetsMatchOfficialCIEChecksumsAndMetadata() throws {
         let sources = [
+            ("CIE_xyz_1931_2deg.csv", "_metadata.json", "17cca777db64b17170f06f67ce9d3ab7",
+             "fa663e3535a7e0763a745993a1f0a192eb0275ac46ad2d1befd7626841e713c1"),
             ("CIE_cfb_stv_2deg.csv", "_metadata.json", "472cc50b14a6cf41ba9f08f8935aedc8",
              "a10751ec8aecdb023f16ba079557e7fb794806884fe3da982dd63da285f872a9"),
             ("CIE_cfb_stv_10deg.csv", "_metadata.json", "c8504e70d7f4760253a0a4d3a42b7d20",

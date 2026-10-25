@@ -23,6 +23,8 @@ struct D65CLI {
             runGains(arguments)
         case "cct":
             runCCT(arguments)
+        case "target":
+            runTarget(arguments)
         case "observers":
             for observer in Observer.allCases {
                 guard let target = observer.d65 else { fail("CIE data unavailable for \(observer.rawValue)") }
@@ -76,6 +78,10 @@ struct D65CLI {
               d65 error <x> <y> [--observer cie1931-2|cie2015-2|cie2015-10]
                   Distance of a white's chromaticity from D65, in CIEDE2000 and CAM16-UCS.
 
+              d65 target <spectra.csv>
+                  The display-specific white each observer sees as D65, measured in CIE 1931 2°, from the
+                  display's primary spectra (CSV: wavelength, red, green, blue).
+
               d65 cct <x> <y>
                   Correlated colour temperature of a chromaticity.
 
@@ -95,6 +101,7 @@ struct D65CLI {
                   Restore the system ColorSync display settings.
 
               d65 serve [--port <p>] [--display-id <id>] [--apply] [--metric ciede2000|cam16-ucs]
+                        [--viewer cie2015-2|cie2015-10 --spectra <file.csv>]
                   Advertise _d65._tcp and solve gains from probe measurements.
 
               d65 ddc probe [--display-id <id>]
@@ -154,6 +161,34 @@ struct D65CLI {
                          predictedChromaticity.correlatedColorTemperature()))
             print(String(format: "ΔE00      %.3f  (measured → corrected, relative luminance ×%.3f)",
                          deltaE, gains.luminanceScale))
+        }
+    }
+
+    static func observerNamed(_ name: String) -> Observer? {
+        ["cie1931-2": Observer.cie1931TwoDegree, "cie2015-2": .cie2015TwoDegree, "cie2015-10": .cie2015TenDegree][name]
+    }
+
+    static func loadSpectra(_ path: String) -> PrimarySpectra {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { fail("can't read \(path)") }
+        do { return try PrimarySpectra(csv: text, source: URL(fileURLWithPath: path).lastPathComponent) }
+        catch let error as PrimarySpectra.ImportError { fail("\(path): \(error.description)") }
+        catch { fail("\(path): \(error)") }
+    }
+
+    static func runTarget(_ arguments: [String]) {
+        guard let path = arguments.first else { fail("target expects a spectra CSV: wavelength, red, green, blue") }
+        let spectra = loadSpectra(path)
+        print("spectra \(spectra.source): \(Int(spectra.range.lowerBound))–\(Int(spectra.range.upperBound)) nm, step \(spectra.wavelengths[1] - spectra.wavelengths[0]) nm")
+        for viewer in Observer.allCases {
+            do {
+                let target = try ObserverTransform.target(measuredIn: .cie1931TwoDegree, d65For: viewer, spectra: spectra)
+                print(String(format: "D65 for %-13@ x=%.5f y=%.5f   ΔE00 %.2f from standard D65", viewer.rawValue as NSString,
+                             target.x, target.y, WhiteErrorMetric.ciede2000.whiteError(target.xyz())))
+            } catch { print("D65 for \(viewer.rawValue): \(error)") }
+        }
+        if let m = try? ObserverTransform.matrix(from: .cie1931TwoDegree, to: .cie2015TwoDegree, spectra: spectra) {
+            print("XYZ(CIE 2015 2°) = M · XYZ(CIE 1931 2°) on this display:")
+            for row in 0..<3 { print(String(format: "  % .6f  % .6f  % .6f", m[row, 0], m[row, 1], m[row, 2])) }
         }
     }
 
@@ -282,6 +317,21 @@ struct D65CLI {
                 }
                 config.metric = metric
             }
+            if let index = arguments.firstIndex(of: "--viewer") {
+                guard index + 1 < arguments.count, let viewer = observerNamed(arguments[index + 1]) else {
+                    fail("--viewer expects cie1931-2, cie2015-2 or cie2015-10")
+                }
+                config.viewerObserver = viewer
+                guard let fileIndex = arguments.firstIndex(of: "--spectra"), fileIndex + 1 < arguments.count else {
+                    fail("--viewer needs --spectra <file.csv> with the display's primary spectra")
+                }
+                config.primarySpectra = loadSpectra(arguments[fileIndex + 1])
+            }
+            do {
+                let target = try config.whiteTarget()
+                print(String(format: "white target: x=%.5f y=%.5f in the probe's %@%@", target.x, target.y,
+                             config.observer.rawValue, config.viewerObserver.map { " (D65 for \($0.rawValue))" } ?? ""))
+            } catch { fail("no usable white target for this configuration") }
             print("white error: \(config.metric.definition)")
             let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent("local/experiments", isDirectory: true)

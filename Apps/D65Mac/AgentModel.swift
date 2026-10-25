@@ -41,7 +41,9 @@ import SwiftUI
             switch hold {
             case .paused: return "Correction off · \((correction.metric ?? .ciede2000).label) \(Format.deltaE(correction.deltaE)) when on"
             case .previewing: return "Previewing"
-            default: return "Corrected · \((correction.metric ?? .ciede2000).label) \(Format.deltaE(correction.deltaE)) · \(Format.relative(correction.createdAt))"
+            default:
+                let viewer = correction.viewerObserver.map { " for \($0.rawValue)" } ?? ""
+                return "Corrected\(viewer) · \((correction.metric ?? .ciede2000).label) \(Format.deltaE(correction.deltaE)) · \(Format.relative(correction.createdAt))"
             }
         }
     }
@@ -52,6 +54,8 @@ import SwiftUI
     @AppStorage("showsProgressOnPatches") var showsProgressOnPatches = true
 
     let store: CorrectionStore
+    /// Imported primary spectra per display, for targets seen by a viewer other than the probe's observer.
+    let spectraStore: PrimarySpectraStore
     let recordDirectory: URL
     /// False only in the debug showcase: nothing may write a gamma table.
     let holdsDisplays: Bool
@@ -70,6 +74,7 @@ import SwiftUI
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("D65", isDirectory: true)
         store = CorrectionStore(url: support.appendingPathComponent("Corrections.json"))
+        spectraStore = PrimarySpectraStore(url: support.appendingPathComponent("PrimarySpectra.json"))
         recordDirectory = support.appendingPathComponent("Experiments", isDirectory: true)
         self.holdsDisplays = holdsDisplays
         guard holdsDisplays else {

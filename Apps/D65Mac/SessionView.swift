@@ -45,7 +45,7 @@ struct SessionView: View {
                 Hint("Built-in displays are listed but not suggested")
                 Button("Cancel") { model.close() }.keyboardShortcut(.cancelAction)
                 Button("Continue") { model.continueFromPrepare() }
-                    .keyboardShortcut(.defaultAction).disabled(model.selected == nil)
+                    .keyboardShortcut(.defaultAction).disabled(model.selected == nil || model.whiteTarget == nil)
             case .connect:
                 Hint("Connects on its own when the app opens")
                 Button("Back") { model.back() }.keyboardShortcut(.cancelAction)
@@ -123,6 +123,7 @@ private struct PrepareStep: View {
                  : "CAM16-UCS, viewed adapted to D65. The gate keeps its thresholds, which were chosen on CIEDE2000; Review shows both metrics.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
+        WhiteTargetSection(model: model)
         Toggle("Measure only, without correcting", isOn: $model.measureOnly)
     }
 }
@@ -241,7 +242,8 @@ private struct ReviewStep: View {
                 HStack(alignment: .top, spacing: 14) {
                     ChromaticityPlot(points: trajectory, metric: record.configuration.metric).frame(width: 220, height: 220)
                     VStack(alignment: .leading, spacing: 8) {
-                        Figure(label: "\(record.configuration.metric.label) to D65", before: Format.deltaE(record.baselineDeltaE),
+                        Figure(label: "\(record.configuration.metric.label) to D65\(record.viewerObserver.map { " (\($0.rawValue))" } ?? "")",
+                               before: Format.deltaE(record.baselineDeltaE),
                                after: record.bestGains?.isIdentity == false ? Format.deltaE(record.bestDeltaE) : nil)
                         Figure(label: "White (approx.)", before: Format.cct(trajectory.first?.correlatedColorTemperature()),
                                after: trajectory.count > 1 ? Format.cct(bestChromaticity(record)?.correlatedColorTemperature()) : nil)
@@ -264,6 +266,13 @@ private struct ReviewStep: View {
                     GridRow { Text("Outcome").foregroundStyle(.secondary); Text("\(record.outcome.rawValue) — \(record.terminationReason)") }
                     GridRow { Text("Metric").foregroundStyle(.secondary); Text(record.whiteErrorMetric) }
                     GridRow { Text("Observer").foregroundStyle(.secondary); Text((record.observer ?? .cie1931TwoDegree).rawValue) }
+                    if let viewer = record.viewerObserver, let target = record.whiteTarget {
+                        GridRow {
+                            Text("Target").foregroundStyle(.secondary)
+                            Text(String(format: "D65 for %@ = x %.5f y %.5f measured (%@)", viewer.rawValue, target.x, target.y,
+                                        record.primarySpectraSource ?? "spectra"))
+                        }
+                    }
                     ForEach(record.metricReports ?? [], id: \.metric) { report in
                         GridRow {
                             Text(report.metric.label).foregroundStyle(.secondary)
@@ -292,6 +301,50 @@ private struct ReviewStep: View {
     }
     private func bestChromaticity(_ record: ExperimentRecord) -> Chromaticity? {
         record.passes.min { $0.deltaE < $1.deltaE }?.measured.chromaticity
+    }
+}
+
+/// Who should see D65, and the display spectra that make a non-1931 viewer possible.
+private struct WhiteTargetSection: View {
+    @ObservedObject var model: SessionModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("White target", selection: $model.viewer) {
+                ForEach(Observer.allCases, id: \.self) { observer in
+                    Text("D65 for \(observer.rawValue)").tag(observer)
+                }
+            }
+            .fixedSize()
+            HStack(spacing: 8) {
+                if let spectra = model.spectra {
+                    Text("Primary spectra: \(spectra.source) · \(Int(spectra.range.lowerBound))–\(Int(spectra.range.upperBound)) nm")
+                    Button("Remove") { model.removeSpectra() }.buttonStyle(.link)
+                } else {
+                    Text("No primary spectra for this display")
+                }
+                Button("Import…") { pickFile() }
+            }
+            .font(.callout).foregroundStyle(.secondary)
+            if let error = model.spectraError {
+                Text(error).font(.caption).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+            } else if model.viewer != .cie1931TwoDegree {
+                if let target = model.whiteTarget {
+                    Text(String(format: "On this display, D65 for %@ is x %.4f y %.4f to the iPhone’s CIE 1931 sensor, ΔE00 %.1f from standard D65.",
+                                model.viewer.rawValue, target.x, target.y, CalibrationEngine.whiteError(target.xyz())))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Import the display’s primary spectra (CSV of wavelength, red, green, blue from a spectroradiometer) to use this target.")
+                        .font(.caption).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func pickFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
+        panel.message = "Choose a CSV of wavelength, red, green, blue measured on full-drive primary patches."
+        if panel.runModal() == .OK, let url = panel.url { model.importSpectra(from: url) }
     }
 }
 

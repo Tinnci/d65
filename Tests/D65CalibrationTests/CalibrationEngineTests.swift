@@ -365,9 +365,9 @@ import XCTest
 
 @MainActor final class MetricAndObserverTests: XCTestCase {
     private func run(_ configuration: CalibrationConfiguration, verification: @escaping (Int) -> XYZ) async throws -> ExperimentRecord {
-        let display = MetricFakeDisplay(), probe = MetricFakeProbe(verification: verification)
+        let display = MetricFakeDisplayPublic(), probe = MetricFakeProbePublic(verification: verification)
         return try await CalibrationEngine().run(configuration: configuration, display: display, probe: probe,
-            presenter: MetricFakePresenter(), clock: MetricClock(), recorder: MetricRecorder(), softwareRevision: "t")
+            presenter: MetricFakePresenterPublic(), clock: MetricClockPublic(), recorder: MetricRecorderPublic(), softwareRevision: "t")
     }
 
     func testCAM16UCSSessionsScoreAndReportInBothMetrics() async throws {
@@ -378,11 +378,11 @@ import XCTest
         XCTAssertEqual(record.whiteErrorMetric, WhiteErrorMetric.cam16ucs.definition)
         XCTAssertEqual(record.observer, .cie1931TwoDegree)
         let baseline = try XCTUnwrap(record.baselineDeltaE)
-        XCTAssertEqual(baseline, WhiteErrorMetric.cam16ucs.whiteError(MetricFakeProbe.white), accuracy: 1e-9)
+        XCTAssertEqual(baseline, WhiteErrorMetric.cam16ucs.whiteError(MetricFakeProbePublic.white), accuracy: 1e-9)
         let reports = try XCTUnwrap(record.metricReports)
         XCTAssertEqual(reports.map(\.metric), [.ciede2000, .cam16ucs])
         XCTAssertEqual(reports[1].baseline, baseline, accuracy: 1e-9)
-        XCTAssertEqual(reports[0].baseline, CalibrationEngine.whiteError(MetricFakeProbe.white), accuracy: 1e-9)
+        XCTAssertEqual(reports[0].baseline, CalibrationEngine.whiteError(MetricFakeProbePublic.white), accuracy: 1e-9)
         XCTAssertEqual(reports[0].best, 0, accuracy: 1e-6, "verified white is D65 itself")
         XCTAssertTrue(SessionSummary(record: record).detail.contains("ΔE CAM16-UCS"))
     }
@@ -394,10 +394,10 @@ import XCTest
                 var configuration = CalibrationConfiguration(mode: .calibrate)
                 configuration.observer = observer
                 configuration.metric = metric
-                let display = MetricFakeDisplay()
+                let display = MetricFakeDisplayPublic()
                 let record = try await CalibrationEngine().run(configuration: configuration, display: display,
-                    probe: MetricFakeProbe(observer: observer) { _ in target.xyz(luminance: 95) }, presenter: MetricFakePresenter(),
-                    clock: MetricClock(), recorder: MetricRecorder(), softwareRevision: "t")
+                    probe: MetricFakeProbePublic(observer: observer) { _ in target.xyz(luminance: 95) }, presenter: MetricFakePresenterPublic(),
+                    clock: MetricClockPublic(), recorder: MetricRecorderPublic(), softwareRevision: "t")
                 XCTAssertEqual(record.outcome, .converged)
                 XCTAssertEqual(display.begins, 1)
                 XCTAssertEqual(record.observer, observer)
@@ -417,10 +417,10 @@ import XCTest
         var configuration = CalibrationConfiguration(mode: .calibrate)
         configuration.observer = observer
         configuration.targetDeltaE = 0.1
-        let display = MetricFakeDisplay()
+        let display = MetricFakeDisplayPublic()
         let record = try await CalibrationEngine().run(configuration: configuration, display: display,
-            probe: MetricFakeProbe(observer: observer) { $0 == 0 ? halfway : target.xyz(luminance: 93) },
-            presenter: MetricFakePresenter(), clock: MetricClock(), recorder: MetricRecorder(), softwareRevision: "t")
+            probe: MetricFakeProbePublic(observer: observer) { $0 == 0 ? halfway : target.xyz(luminance: 93) },
+            presenter: MetricFakePresenterPublic(), clock: MetricClockPublic(), recorder: MetricRecorderPublic(), softwareRevision: "t")
         XCTAssertEqual(record.outcome, .converged)
         XCTAssertEqual(record.passes.count, 2)
         let first = try XCTUnwrap(display.applied.first)
@@ -434,10 +434,10 @@ import XCTest
     func testChangingTheObserverCannotRelabelAnExisting1931Probe() async throws {
         var configuration = CalibrationConfiguration(mode: .calibrate)
         configuration.observer = .cie2015TenDegree
-        let display = MetricFakeDisplay()
+        let display = MetricFakeDisplayPublic()
         let record = try await CalibrationEngine().run(configuration: configuration, display: display,
-            probe: MetricFakeProbe { _ in .zero }, presenter: MetricFakePresenter(), clock: MetricClock(),
-            recorder: MetricRecorder(), softwareRevision: "t")
+            probe: MetricFakeProbePublic { _ in .zero }, presenter: MetricFakePresenterPublic(), clock: MetricClockPublic(),
+            recorder: MetricRecorderPublic(), softwareRevision: "t")
         XCTAssertEqual(record.outcome, .failed)
         XCTAssertEqual(record.failure, .invalidConfiguration)
         XCTAssertEqual(display.begins, 0)
@@ -460,11 +460,11 @@ import XCTest
 }
 
 private let metricWhite = Chromaticity(x: 0.300, y: 0.315).xyz(luminance: 100)
-@MainActor private final class MetricClock: CalibrationClock {
+@MainActor final class MetricClockPublic: CalibrationClock {
     var now = Date(timeIntervalSince1970: 1_800_000_000)
     func sleep(seconds: Double) async throws { now.addTimeInterval(seconds) }
 }
-@MainActor private final class MetricFakeProbe: CalibrationProbe {
+@MainActor final class MetricFakeProbePublic: CalibrationProbe {
     static let white = metricWhite
     let identity = ProbeIdentity(model: "test", build: "test")
     let verification: (Int) -> XYZ
@@ -488,7 +488,7 @@ private let metricWhite = Chromaticity(x: 0.300, y: 0.315).xyz(luminance: 100)
     }
     @discardableResult func stop() -> [TaggedMeasurement] { [] }
 }
-@MainActor private final class MetricFakeDisplay: CalibrationDisplay {
+@MainActor final class MetricFakeDisplayPublic: CalibrationDisplay {
     let context = DisplayContext(identity: "d", name: "test", displayID: 1, width: 1, height: 1, refreshRate: 60)
     var begins = 0
     var applied: [RGBGains] = []
@@ -499,10 +499,64 @@ private let metricWhite = Chromaticity(x: 0.300, y: 0.315).xyz(luminance: 100)
     func readControl(_ code: UInt8) throws -> DDCValue { throw CalibrationError.controlUnavailable(code) }
     func writeControl(_ code: UInt8, value: UInt16) throws { throw CalibrationError.controlUnavailable(code) }
 }
-@MainActor private final class MetricFakePresenter: PatchPresenter {
+@MainActor final class MetricFakePresenterPublic: PatchPresenter {
     func show(_ patch: CalibrationPatch) async throws {}
     func close() {}
 }
-@MainActor private final class MetricRecorder: ExperimentRecorder {
+@MainActor final class MetricRecorderPublic: ExperimentRecorder {
     func save(_ record: ExperimentRecord) throws {}
+}
+
+@MainActor final class ViewerObserverTests: XCTestCase {
+    private func spectra() throws -> PrimarySpectra {
+        let grid = stride(from: 380.0, through: 780, by: 1).map { $0 }
+        let g = { (peak: Double) in grid.map { exp(-0.5 * pow(($0 - peak) / 2, 2)) } }   // laser-like: a large shift
+        return try PrimarySpectra(wavelengths: grid, red: g(637), green: g(532), blue: g(465), source: "lasers.csv")
+    }
+
+    func testSessionSteersToTheWhiteTheViewerSeesAsD65() async throws {
+        var configuration = CalibrationConfiguration(mode: .calibrate)
+        configuration.viewerObserver = .cie2015TwoDegree
+        configuration.primarySpectra = try spectra()
+        let target = try configuration.whiteTarget()
+        XCTAssertGreaterThan(hypot(target.x - 0.3127, target.y - 0.3290), 0.002)
+        // The probe reports exactly that corrected white after the first pass.
+        let record = try await CalibrationEngine().run(configuration: configuration, display: MetricFakeDisplayPublic(),
+            probe: MetricFakeProbePublic { _ in target.xyz(luminance: 95) }, presenter: MetricFakePresenterPublic(),
+            clock: MetricClockPublic(), recorder: MetricRecorderPublic(), softwareRevision: "t")
+        XCTAssertEqual(record.outcome, .converged)
+        XCTAssertEqual(record.whiteTarget, target)
+        XCTAssertEqual(record.viewerObserver, .cie2015TwoDegree)
+        XCTAssertEqual(record.primarySpectraSource, "lasers.csv")
+        XCTAssertEqual(try XCTUnwrap(record.bestDeltaE), 0, accuracy: 1e-9, "zero error against the corrected target")
+        XCTAssertGreaterThan(CalibrationEngine.whiteError(target.xyz()), 0.5, "but not zero against standard D65")
+    }
+
+    func testViewerWithoutSpectraIsRefusedBeforeTouchingTheDisplay() async throws {
+        var configuration = CalibrationConfiguration(mode: .calibrate)
+        configuration.viewerObserver = .cie2015TenDegree
+        let display = MetricFakeDisplayPublic()
+        let record = try await CalibrationEngine().run(configuration: configuration, display: display,
+            probe: MetricFakeProbePublic { _ in .zero }, presenter: MetricFakePresenterPublic(), clock: MetricClockPublic(),
+            recorder: MetricRecorderPublic(), softwareRevision: "t")
+        XCTAssertEqual(record.outcome, .failed)
+        XCTAssertEqual(display.begins, 0)
+    }
+
+    func testSameViewerAsProbeNeedsNoSpectra() throws {
+        var configuration = CalibrationConfiguration(mode: .calibrate)
+        configuration.viewerObserver = .cie1931TwoDegree
+        XCTAssertEqual(try configuration.whiteTarget(), .d65)
+    }
+
+    func testSpectraStoreRoundTripsPerDisplay() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "/spectra.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try PrimarySpectraStore(url: url).save(try spectra(), for: "uuid-1")
+        let reloaded = PrimarySpectraStore(url: url)
+        XCTAssertEqual(reloaded.spectra(for: "uuid-1"), try spectra())
+        XCTAssertNil(reloaded.spectra(for: "uuid-2"))
+        try reloaded.remove(for: "uuid-1")
+        XCTAssertNil(PrimarySpectraStore(url: url).spectra(for: "uuid-1"))
+    }
 }

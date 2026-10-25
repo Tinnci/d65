@@ -53,6 +53,49 @@ import SwiftUI
     #endif
 
     var selected: DisplayInfo? { displays.first { $0.id == selectedID } }
+
+    /// Who should see the result as D65. Anything but CIE 1931 2° needs the display's primary spectra.
+    @Published var viewer: Observer = Observer(rawValue: UserDefaults.standard.string(forKey: "viewer") ?? "") ?? .cie1931TwoDegree {
+        didSet { UserDefaults.standard.set(viewer.rawValue, forKey: "viewer") }
+    }
+    @Published private(set) var spectraError: String?
+    var spectra: PrimarySpectra? { selected.flatMap { agent.spectraStore.spectra(for: $0.identity) } }
+
+    /// The white this session will steer to, or why it can't.
+    var targetConfiguration: CalibrationConfiguration {
+        var configuration = CalibrationConfiguration(mode: measureOnly ? .measureOnly : .calibrate)
+        configuration.metric = metric
+        if viewer != configuration.observer {
+            configuration.viewerObserver = viewer
+            configuration.primarySpectra = spectra
+        }
+        return configuration
+    }
+    var whiteTarget: Chromaticity? { try? targetConfiguration.whiteTarget() }
+
+    func importSpectra(from url: URL) {
+        guard let display = selected else { return }
+        do {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let spectra = try PrimarySpectra(csv: text, source: url.lastPathComponent)
+            _ = try ObserverTransform.primaryMatrix(spectra, observer: .cie1931TwoDegree)
+            try agent.spectraStore.save(spectra, for: display.identity)
+            spectraError = nil
+        } catch let error as PrimarySpectra.ImportError {
+            spectraError = error.description
+        } catch is ObserverTransform.TransformError {
+            spectraError = "The three primaries are too similar to tell apart; check the file's columns."
+        } catch {
+            spectraError = "Couldn’t read \(url.lastPathComponent): \(error.localizedDescription)"
+        }
+        objectWillChange.send()
+    }
+
+    func removeSpectra() {
+        guard let display = selected else { return }
+        try? agent.spectraStore.remove(for: display.identity)
+        objectWillChange.send()
+    }
     var patchCount: Int { CalibrationPatch.sequence.count }
     var secondsRemaining: Int {
         let config = CalibrationConfiguration(mode: .calibrate)
@@ -104,9 +147,7 @@ import SwiftUI
         patchIndex = 0; passes = []; verifyingPass = nil; record = nil; summary = nil; saveError = nil
         phase = CalibrationPatch.sequence[0].name
         step = .measure
-        var configuration = CalibrationConfiguration(mode: measureOnly ? .measureOnly : .calibrate)
-        configuration.metric = metric
-        service.run(configuration: configuration, displayID: display.id)
+        service.run(configuration: targetConfiguration, displayID: display.id)
     }
 
     func back() {

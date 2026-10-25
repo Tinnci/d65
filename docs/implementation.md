@@ -183,3 +183,20 @@ protocol-v3 placement, twelve patches, a correction and verification, record sav
 restoration. It did not exercise GUI persistence or reference-colorimeter accuracy. Full numbers
 are in [experiment §13](experiments.md#13-first-real-session-after-the-shared-engine-and-app-changes);
 [runbook.md](runbook.md) documents how to reproduce the session.
+
+## Observer-corrected targets
+
+The iPhone ALS reports CIE 1931 2° XYZ, and that XYZ is never relabelled. A session can still aim at
+the white another observer sees as D65. A three-primary display only emits mixtures of its three
+primary spectra, so for that display `XYZ_to = P_to · P_from⁻¹ · XYZ_from` exactly, where each `P`
+holds the primaries' tristimulus values under one observer (`D65Core.ObserverTransform`).
+`CalibrationConfiguration.viewerObserver` plus `primarySpectra` make `whiteTarget()` return that
+display-specific 1931 white. The solver, gate and stopping rule then steer to it. Records keep the
+target, the viewer and the spectra's source. Spectra are imported per display (`PrimarySpectraStore`,
+`Application Support/D65/PrimarySpectra.json`) from a CSV of `wavelength, red, green, blue`, each
+column measured on a full-drive primary patch. The CSV needs equal steps of 10 nm or finer covering at
+least 400–700 nm. It is linearly interpolated onto the CIE 1 nm grid and taken as zero outside its
+range. Without spectra a non-1931 viewer is refused, because the shift depends on the primaries' spectral
+shape (1.9–6.6 ΔE00 across plausible shapes for the K27, experiments notes). CLI: `d65 target <csv>`,
+`d65 serve --viewer cie2015-2 --spectra <csv>`.
+

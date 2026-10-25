@@ -19,6 +19,8 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[1] / "Sources/D65Core/Resources/CIE"
 BASE = "https://files.cie.co.at/Publications-datasets/"
 SOURCES = [
+    ("CIE_xyz_1931_2deg.csv", "_metadata.json", 360, 830, 4,
+     "17cca777db64b17170f06f67ce9d3ab7", "fa663e3535a7e0763a745993a1f0a192eb0275ac46ad2d1befd7626841e713c1"),
     ("CIE_cfb_stv_2deg.csv", "_metadata.json", 390, 830, 4,
      "472cc50b14a6cf41ba9f08f8935aedc8", "a10751ec8aecdb023f16ba079557e7fb794806884fe3da982dd63da285f872a9"),
     ("CIE_cfb_stv_10deg.csv", "_metadata.json", 390, 830, 4,
@@ -67,7 +69,7 @@ def validate(directory):
         tables[name] = rows
         print(f"PASS {name}: {len(rows)} rows, {first}–{last} nm / 1 nm; MD5, SHA-256, grids, values, column sums, sample row")
     spectrum = {int(row[0]): row[1] for row in tables["CIE_std_illum_D65.csv"]}
-    for name, *_ in SOURCES[:2]:
+    for name in ("CIE_xyz_1931_2deg.csv", "CIE_cfb_stv_2deg.csv", "CIE_cfb_stv_10deg.csv"):
         # Decimal summation provides an independent check of the Swift Double implementation.
         xyz = [sum(spectrum[int(row[0])] * row[channel] for row in tables[name]) for channel in (1, 2, 3)]
         white = [v / xyz[1] for v in xyz]

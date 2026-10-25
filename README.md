@@ -120,6 +120,7 @@ swift run d65 display reset
 swift run d65 serve            # advertise _d65._tcp, solve gains from a probe
 swift run d65 serve --apply --metric cam16-ucs   # score the white in CAM16-UCS instead of CIEDE2000
 swift run d65 error 0.3097 0.3218                # a white's distance from D65 in both metrics
+swift run d65 target primaries.csv               # the white each observer sees as D65 on this display
 swift run d65 ddc probe        # read monitor controls over DDC/CI, with timings
 swift run d65 ddc capabilities # the monitor's MCCS capabilities string, parsed
 ```

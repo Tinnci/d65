@@ -25,10 +25,27 @@ public struct CalibrationConfiguration: Codable, Sendable {
     public var metric: WhiteErrorMetric = .ciede2000
     /// The observer the probe's XYZ uses. The iPhone ALS reports XYZ computed by iOS, taken as CIE 1931 2°.
     public var observer: Observer = .cie1931TwoDegree
+    /// The observer that should see the result as D65, when it differs from the probe's. Requires
+    /// `primarySpectra`: the display's primaries fix the exact transform between the two observers.
+    public var viewerObserver: Observer?
+    /// The display's primary spectra, needed for `viewerObserver`.
+    public var primarySpectra: PrimarySpectra?
     public init(mode: CalibrationMode = .measureOnly) { self.mode = mode }
+
+    /// The white to steer to, in the probe's observer: D65 itself, or the white the viewer sees as D65.
+    public func whiteTarget() throws -> Chromaticity {
+        guard let standard = observer.d65 else { throw CalibrationError.invalidConfiguration }
+        guard let viewer = viewerObserver, viewer != observer else { return standard }
+        guard let spectra = primarySpectra,
+              let target = try? ObserverTransform.target(measuredIn: observer, d65For: viewer, spectra: spectra) else {
+            throw CalibrationError.invalidConfiguration
+        }
+        return target
+    }
 
     private enum CodingKeys: String, CodingKey {
         case mode, settlingSeconds, samplingSeconds, minimumSamples, maximumPasses, targetDeltaE, gate, metric, observer
+        case viewerObserver, primarySpectra
     }
     /// Records written before metrics and observers existed decode as CIEDE2000 and CIE 1931 2°.
     public init(from decoder: Decoder) throws {
@@ -42,6 +59,8 @@ public struct CalibrationConfiguration: Codable, Sendable {
         gate = try c.decode(QualityGate.self, forKey: .gate)
         metric = try c.decodeIfPresent(WhiteErrorMetric.self, forKey: .metric) ?? .ciede2000
         observer = try c.decodeIfPresent(Observer.self, forKey: .observer) ?? .cie1931TwoDegree
+        viewerObserver = try c.decodeIfPresent(Observer.self, forKey: .viewerObserver)
+        primarySpectra = try c.decodeIfPresent(PrimarySpectra.self, forKey: .primarySpectra)
     }
 }
 

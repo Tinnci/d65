@@ -74,6 +74,11 @@ public struct ExperimentRecord: Codable, Sendable {
     public var observer: Observer?
     /// The baseline and best white in every metric (absent in older records).
     public var metricReports: [MetricReport]?
+    /// The white this session steered to, in the probe's observer (absent in older records: D65).
+    public var whiteTarget: Chromaticity?
+    /// The observer the target was chosen for, and where the display's primary spectra came from.
+    public var viewerObserver: Observer?
+    public var primarySpectraSource: String?
     public var restorationErrors: [String] = []
     public var stateHistory: [CalibrationState] = [.idle]
 
@@ -81,6 +86,8 @@ public struct ExperimentRecord: Codable, Sendable {
                 configuration: CalibrationConfiguration, display: DisplayContext, probe: ProbeIdentity) {
         schemaVersion = 1; whiteErrorMetric = configuration.metric.definition
         observer = configuration.observer
+        viewerObserver = configuration.viewerObserver
+        primarySpectraSource = configuration.primarySpectra?.source
         self.id = id; self.startedAt = startedAt
         self.softwareRevision = softwareRevision; self.configuration = configuration
         self.display = display; self.probe = probe
@@ -105,6 +112,10 @@ public struct ExperimentRecord: Codable, Sendable {
         lines.append(String(format: "gamma %.3f", gamma))
         let unit = configuration.metric.label
         lines.append("metric \(whiteErrorMetric); observer \((observer ?? .cie1931TwoDegree).rawValue)")
+        if let viewer = viewerObserver, let target = whiteTarget {
+            lines.append(String(format: "target: D65 as seen by %@ → x=%.5f y=%.5f in the probe's observer (spectra: %@)",
+                                viewer.rawValue, target.x, target.y, primarySpectraSource ?? "?"))
+        }
         if let baselineDeltaE { lines.append(String(format: "baseline %@ %.2f", unit, baselineDeltaE)) }
         if let bestDeltaE, let bestGains {
             lines.append(String(format: "best measured %@ %.2f R=%.4f G=%.4f B=%.4f", unit,

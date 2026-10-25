@@ -5,18 +5,20 @@ The CSV files retain their original bytes/line endings; accompanying JSON is the
 
 | Dataset | CIE source page | DOI |
 |---|---|---|
+| `CIE_xyz_1931_2deg.csv` | [CIE 1931 colour-matching functions, 2° observer](https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer) | [10.25039/CIE.DS.xvudnb9b](https://doi.org/10.25039/CIE.DS.xvudnb9b) |
 | `CIE_cfb_stv_2deg.csv` | [2° cone-fundamental-based spectral tristimulus values](https://cie.co.at/datatable/cie-cone-fundamental-based-spectral-tristimulus-values-2-degree-field-size) | [10.25039/CIE.DS.548rw69q](https://doi.org/10.25039/CIE.DS.548rw69q) |
 | `CIE_cfb_stv_10deg.csv` | [10° cone-fundamental-based spectral tristimulus values](https://cie.co.at/datatable/cie-cone-fundamental-based-spectral-tristimulus-values-10-field-size) | [10.25039/CIE.DS.dm6qiig7](https://doi.org/10.25039/CIE.DS.dm6qiig7) |
 | `CIE_std_illum_D65.csv` | [CIE standard illuminant D65](https://cie.co.at/datatable/cie-standard-illuminant-d65) | [10.25039/CIE.DS.hjfjmt59](https://doi.org/10.25039/CIE.DS.hjfjmt59) |
 
-Attribution: CIE (2015), CIE cone-fundamental-based spectral tristimulus values for 2° and 10°
+Attribution: CIE (2019), Colour-matching functions of CIE 1931 standard colorimetric observer
+(ISO/CIE 11664-1:2019); CIE (2015), CIE cone-fundamental-based spectral tristimulus values for 2° and 10°
 field size; CIE (2019), CIE standard illuminant D65; International Commission on Illumination (CIE),
 Vienna, AT. The CMFs originate in CIE 170-2:2015, Tables 10.7a and 10.8; the D65 spectrum originates
 in ISO/CIE 11664-2:2022, Table B.1. See each metadata file for the complete supplied citation.
 
 ## Dataset license
 
-These six CIE files are **CC BY-SA 4.0**, as specified in their `rightsList` metadata, independently
+These eight CIE files are **CC BY-SA 4.0**, as specified in their `rightsList` metadata, independently
 of this repository's MIT source-code license. Retain CIE attribution and this notice when
 redistributing them. License: [Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/).
 No source dataset values were changed. The project's Swift implementation and validation script
@@ -50,3 +52,12 @@ added. The CIE metadata specifies zero extrapolation for the CMFs. Results:
 The existing CIE 1931 2° target remains the rounded sRGB/Rec.709 reference x=0.3127, y=0.3290.
 These are different observer coordinate systems: loading the targets does not convert iPhone ALS
 XYZ, sRGB primary coordinates, or historical measurements into CIE 2015 coordinates.
+
+## Display observer transforms
+
+`CIE_xyz_1931_2deg.csv` (471 rows, 360–830 nm) was added for `ObserverTransform`. Integrated with D65
+it gives XYZ (0.9504705586542830, 1, 1.0888287363958847), xy (0.3127268710265648, 0.3290232066412840),
+which the Swift tests use as an exact reference. With a display's primary spectra, the 1931 and 2015
+tables give the exact per-display relation XYZ₂₀₁₅ = P₂₀₁₅ · P₁₉₃₁⁻¹ · XYZ₁₉₃₁. That is what lets a probe
+reporting CIE 1931 XYZ steer to the white a CIE 2015 observer sees as D65. The iPhone ALS's own XYZ is
+still never relabelled.

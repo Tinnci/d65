@@ -7,6 +7,18 @@ enum CIESpectralData {
 
     static let spectrum = try? load("CIE_std_illum_D65.csv", columns: 2, wavelengths: 300...830)
     static let twoDegreeD65 = try? d65(using: "CIE_cfb_stv_2deg.csv")
+    /// Colour-matching functions as rows of (nm, x̄, ȳ, z̄) on the CIE's own 1 nm grid.
+    static let cie1931TwoDegree = try? load("CIE_xyz_1931_2deg.csv", columns: 4, wavelengths: 360...830)
+    static let cie2015TwoDegree = try? load("CIE_cfb_stv_2deg.csv", columns: 4, wavelengths: 390...830)
+    static let cie2015TenDegree = try? load("CIE_cfb_stv_10deg.csv", columns: 4, wavelengths: 390...830)
+
+    static func functions(for observer: Observer) -> [[Double]]? {
+        switch observer {
+        case .cie1931TwoDegree: cie1931TwoDegree
+        case .cie2015TwoDegree: cie2015TwoDegree
+        case .cie2015TenDegree: cie2015TenDegree
+        }
+    }
     static let tenDegreeD65 = try? d65(using: "CIE_cfb_stv_10deg.csv")
 
     static func resource(_ filename: String) throws -> Data {
