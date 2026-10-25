@@ -32,7 +32,7 @@ targets:
       properties:
         CFBundleDisplayName: D65
         D65SoftwareRevision: unknown
-        CFBundleShortVersionString: "0.1.0"
+        CFBundleShortVersionString: "0.2.0"
         LSApplicationCategoryType: public.app-category.utilities
         LSUIElement: true
         NSLocalNetworkUsageDescription: D65 finds your iPhone probe on the local network.
@@ -80,7 +80,7 @@ targets:
       path: Apps/D65Probe/Info.plist
       properties:
         CFBundleDisplayName: D65 Probe
-        CFBundleShortVersionString: "0.1.0"
+        CFBundleShortVersionString: "0.2.0"
         UILaunchScreen:
           UIColorName: LaunchBackground
         NSLocalNetworkUsageDescription: D65 Probe sends measurements to the Mac on your local network.
