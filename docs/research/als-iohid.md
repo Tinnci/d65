@@ -99,6 +99,18 @@ Four findings:
    4726 K. They agree, which settles the decode.
 4. Samples arrive at roughly 4 Hz and track ambient light; `lux` moves with `Y`.
 
+A cover test confirms the readings are real. Shading the sensor area drove `lux` from ~11 to ~3,
+and uncovering it under a brighter, cooler light produced:
+
+```
+ALS #85 lux=6.0000   X=6.80   Y=6.12   Z=4.91   CCT=3953
+ALS #90 lux=489.0000 X=463.00 Y=489.51 Z=492.72 CCT=5462
+```
+
+`Y` tracks `lux` almost exactly, `Z` crosses above `X` when the illuminant turns cool, and `CCT`
+moves 3950 → 5500 K with the light. At the low end (3–5 lux) CCT becomes noisy, which is what the
+measurement normaliser is for.
+
 This contradicts the assumption in the previous section — see the revised conclusion below.
 
 ## Entitlements, verified
