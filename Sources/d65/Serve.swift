@@ -45,6 +45,7 @@ final class CalibrationServer {
     private let ddcTest: Bool
     private let gammaTest: Bool
     private let brightnessTest: Bool
+    private let effectTest: Bool
     private var output = MacDisplayOutput()
     private let normalizer = MeasurementNormalizer(minimumLux: 1)
     private var buffers: [ObjectIdentifier: Data] = [:]
@@ -63,11 +64,12 @@ final class CalibrationServer {
     private let maximumPasses = 3
     private let targetDeltaE = 2.0
 
-    init(port: UInt16, applyToDisplay: Bool, ddcTest: Bool = false, gammaTest: Bool = false, brightnessTest: Bool = false) throws {
+    init(port: UInt16, applyToDisplay: Bool, ddcTest: Bool = false, gammaTest: Bool = false, brightnessTest: Bool = false, effectTest: Bool = false) throws {
         self.applyToDisplay = applyToDisplay
         self.ddcTest = ddcTest
         self.gammaTest = gammaTest
         self.brightnessTest = brightnessTest
+        self.effectTest = effectTest
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
@@ -312,6 +314,14 @@ final class CalibrationServer {
             }
         }
 
+        if effectTest {
+            convergenceAmbient = ambient
+            effectQueue = [("contrast", 0x12, 80), ("vcp6C", 0x6C, 100)]
+            print("effect test: \(effectQueue.count) candidates")
+            runNextEffectTest()
+            return
+        }
+
         if brightnessTest {
             convergenceAmbient = ambient
             let baseline = white.y
@@ -427,6 +437,48 @@ final class CalibrationServer {
         previousDeltaE = pre
         pass = 1
         requestConvergenceMeasurement()
+    }
+
+    private var effectQueue: [(name: String, vcp: UInt8, test: UInt16)] = []
+
+    private func runNextEffectTest() {
+        guard !effectQueue.isEmpty else {
+            print("effect test: done")
+            DispatchQueue.main.async { self.patch.close() }
+            sessionRunning = false
+            return
+        }
+        let item = effectQueue.removeFirst()
+        guard let display = DDCDisplay.external(), let original = display.read(item.vcp) else {
+            print("effect test: \(item.name) unavailable")
+            runNextEffectTest()
+            return
+        }
+
+        measureWhite { baseline in
+            _ = display.write(item.vcp, value: item.test)
+            let readback = display.read(item.vcp)?.current ?? 0
+            self.measureWhite { after in
+                _ = display.write(item.vcp, value: original.current)
+                self.measureWhite { restored in
+                    let deltaY = (after.y / baseline.y - 1) * 100
+                    let baselineXY = baseline.chromaticity
+                    let afterXY = after.chromaticity
+                    let deltaXY = hypot((afterXY?.x ?? 0) - (baselineXY?.x ?? 0),
+                                        (afterXY?.y ?? 0) - (baselineXY?.y ?? 0))
+                    let effective = abs(deltaY) > 5 || deltaXY > 0.002
+                    print(String(
+                        format: "effect %@ 0x%02X: %d->%d  ΔY=%+.1f%%  Δxy=%.4f  readback=%d  → %@",
+                        item.name, item.vcp, original.current, item.test,
+                        deltaY, deltaXY, readback, effective ? "EFFECTIVE" : "no measurable effect"
+                    ))
+                    if abs(restored.y / baseline.y - 1) > 0.05 {
+                        print("  WARNING: restore drifted \(String(format: "%.1f", (restored.y / baseline.y - 1) * 100))%")
+                    }
+                    self.runNextEffectTest()
+                }
+            }
+        }
     }
 
     private func measureWhite(then completion: @escaping (XYZ) -> Void) {

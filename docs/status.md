@@ -17,12 +17,14 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 | Convergence | ΔE00 24.0 → 2.8 → 1.4 in two passes, in one session |
 | DDC reads | luminance, contrast, RGB gain, input, preset |
 | DDC brightness write | write 100 raised measured Y by 93 % — genuinely effective |
-| DDC writes (partial) | contrast, preset, input accepted (visual effect unverified) |
+| DDC contrast write | 50→80 measured: Y +17.5 %, Δxy 0.0247, restored |
+| DDC writes (partial) | preset and input accepted; input not effect-tested |
 
 ## Known not working
 
 | Problem | Cause | Consequence |
 |---|---|---|
+| Contrast changes invalidate a calibration | contrast shifts Δxy by 0.02, well beyond the correction size | poll 0x12 and mark stored calibrations stale when it changes |
 | DDC readback is untrustworthy | brightness reads 0 while lit; restoring by value dimmed the panel 34 % | every write must be verified with the sensor; restores are closed-loop on luminance |
 | DDC RGB gain writes have no effect | panel firmware ignores 0x16/0x18/0x1A, even in User preset | no hardware white-point correction on this display |
 | ~~One pass does not land on target~~ | fixed: `scaledLinear` compensates display gamma, then the loop iterates | 18.75 → 2.36 ΔE00 in two passes |

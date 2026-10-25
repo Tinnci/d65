@@ -251,6 +251,27 @@ The middle one is the dangerous case: the readback looks self-consistent. The ru
 that a write counts as successful only when **the sensor sees a change**, and a restore must be
 closed-loop on measured luminance.
 
+## 12. Effect-verified VCP test
+
+`d65 serve --effect-test` measures white, writes a candidate VCP, re-measures, restores and
+re-measures again. Classification uses the sensor, never the readback.
+
+```
+effect contrast 0x12: 50->80   ΔY=+17.5%  Δxy=0.0247  readback=80   → EFFECTIVE
+effect vcp6C    0x6C: 50->100  ΔY= +0.1%  Δxy=0.0013  readback=100  → no measurable effect
+```
+
+Two results, each useful:
+
+1. **Contrast is real, and it moves colour as well as luminance.** A 30-point contrast change
+   raised Y by 17.5 % and shifted chromaticity by 0.0247 — far more than the Δxy we are trying to
+   correct (typically < 0.004). Consequence: contrast must be held constant during calibration, and
+   any change to it invalidates a stored correction.
+2. **`0x6C` is writable but inert.** Readback reports 100, the picture does not change. This is a
+   fourth behaviour: accepted, consistent, and meaningless.
+
+Both restores returned to baseline (no WARNING printed).
+
 ## Confounds to control in future runs
 
 | Confound | Effect | Mitigation |

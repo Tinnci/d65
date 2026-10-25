@@ -22,7 +22,7 @@ was followed by a read-back and a restore.
 | VCP | Meaning | Read | Write | Evidence |
 |---|---|---|---|---|
 | `0x10` | luminance | ⚠️ | ✅ | write 100 raised measured Y by 93 %; readback reported 0 while lit |
-| `0x12` | contrast | ✅ | ✅ | 50 → 47 → read 47 → restored 50 |
+| `0x12` | contrast | ✅ | ✅ | 50→80 raised measured Y 17.5 % and Δxy 0.0247; restored |
 | `0x14` | colour preset | ✅ | ✅ | 5 → 11 → read 11 → restored 5 |
 | `0x60` | input source | ✅ | ✅ | reads 15 |
 | `0x0C` | colour temperature | ✅ | ⚠️ | wrote 201, read back 2 — semantics unclear |
@@ -38,7 +38,11 @@ that `0` back dimmed the panel by 34 %. Any automation must verify with the sens
 measured luminance, not by the value it read.
 
 Phantom VCPs (implausible maximum, no real control): `0x0B` (max 24028), `0x0D`, `0x8A`, `0xE0`.
-Unverified: `0x6C` and `0x6E` (both read 50/255), `0x52`, `0xDC`.
+Inert: `0x6C` accepts a write (readback 100) but changes nothing measurable; `0x6E` likely the
+same. Unverified: `0x52`, `0xDC`.
+
+**Contrast is part of the calibration state.** Changing it shifts colour by more than the
+corrections we apply, so a stored correction is invalid once contrast changes.
 
 ### What this means
 
