@@ -107,6 +107,7 @@ applied as per-channel gains through the render server. The full write-up — co
 - [x] macOS output adapter: gamma-table gains, verified apply/read-back/reset
 - [ ] Menu-bar agent that holds the correction across process lifetime
 - [ ] Per-display-mode persistence and restore after crash
+- [ ] Calibrate the probe's channel triple against a reference before trusting it as XYZ
 - [ ] Probe acquisition: external sensor (supported) or sideloaded IOHID ALS (experimental, see docs/research/als-iohid.md)
 - [ ] End-to-end session over `D65Link` (Bonjour + framing)
 - [ ] Calibration store keyed by `DisplayModeKey`, with the `QualityGate` verdict recorded

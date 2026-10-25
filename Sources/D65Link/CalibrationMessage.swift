@@ -12,6 +12,8 @@ public enum CalibrationMessage: Codable, Hashable, Sendable {
     case ready(options: [String: Double])
     /// Probe → Mac. One reading.
     case sample(MeasurementSample)
+    /// Probe → Mac. A reading taken while the display showed a named patch.
+    case phasedSample(phase: String, sample: MeasurementSample)
     /// Mac → Probe. Display progress for the probe UI.
     case progress(phase: String, fraction: Double)
     /// Mac → Probe. Final outcome, including what was applied.

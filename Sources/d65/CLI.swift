@@ -1,3 +1,4 @@
+import AppKit
 import D65Core
 import D65Display
 import Foundation
@@ -193,6 +194,9 @@ struct D65CLI {
         let options = parseOptions(arguments)
         let port = UInt16(options["port"] ?? 50515)
         let apply = arguments.contains("--apply")
+
+        let application = NSApplication.shared
+        application.setActivationPolicy(.accessory)
 
         do {
             let server = try CalibrationServer(port: port, applyToDisplay: apply)

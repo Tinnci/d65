@@ -111,6 +111,24 @@ ALS #90 lux=489.0000 X=463.00 Y=489.51 Z=492.72 CCT=5462
 moves 3950 → 5500 K with the light. At the low end (3–5 lux) CCT becomes noisy, which is what the
 measurement normaliser is for.
 
+### Open question: are the three channel values colorimetric?
+
+A white-patch test complicates the X/Y/Z reading. With a full-screen white window on a display that
+should be near D65, the subtraction of the black-patch ambient gave:
+
+```
+black Y=1.96   white Y=149.12
+emitted X=134.35 Y=147.15 Z=218.28   → x=0.269 y=0.294  (≈10,800 K)
+```
+
+Either the display is extremely blue, or the three channels are **uncalibrated sensor responses**
+that only become colorimetric after the per-module calibration (the 68-byte blob, and the CoreML
+models on the tvOS side). The fourth value, the sensor's own CCT, agrees with the channels in both
+the ambient and the display case, but it is computed by firmware and may already be calibrated.
+
+Until this is settled, treat the three channels as sensor-relative, not XYZ. This is exactly the
+kind of gap the calibration blob exists to close.
+
 This contradicts the assumption in the previous section — see the revised conclusion below.
 
 ## Entitlements, verified
