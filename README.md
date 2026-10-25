@@ -1,11 +1,15 @@
 <p align="center">
-  <img src="Apps/D65Mac/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="112" height="112" alt="D65 icon: a ring with a held dot on a short arc of the Planckian locus">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/icon-dark.png">
+    <img src="docs/images/icon-light.png" width="240" height="240" alt="D65 icon: a ring holding a dot, set on a short arc of the Planckian locus that runs from cool blue to warm orange">
+  </picture>
 </p>
 
 <h1 align="center">D65</h1>
 
 <p align="center">
-  White-point balance for external displays, measured with an iPhone.
+  <b>White-point balance for external displays, measured with an iPhone.</b><br>
+  <sub>The ring holds the white point on D65; behind it runs the Planckian locus, cool to warm.</sub>
 </p>
 
 <p align="center">

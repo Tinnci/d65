@@ -105,7 +105,9 @@ func render(size: Int, palette: Palette, shape: Shape) -> CGImage {
 
     // A hairline edge keeps the light macOS tile from dissolving into a light Dock.
     if shape == .macOS {
-        ctx.addPath(clip); ctx.setStrokeColor(color((0, 0, 0), 0.10)); ctx.setLineWidth(2); ctx.strokePath()
+        // The dark tile gets a light edge so it doesn't dissolve into a dark page.
+        let edge: CGColor = palette.ink.r > 0.5 ? color(palette.ink, 0.14) : color((0, 0, 0), 0.10)
+        ctx.addPath(clip); ctx.setStrokeColor(edge); ctx.setLineWidth(2); ctx.strokePath()
     }
     return ctx.makeImage()!
 }
@@ -179,6 +181,12 @@ writeJSON(["images": iosImages, "info": ["author": "xcode", "version": 1]], to: 
 colorSet("AccentColor", in: ios, light: accentLight, dark: accentDark)
 // Launch matches the probe's first screen: system background, no logo flash.
 colorSet("LaunchBackground", in: ios, light: (1, 1, 1), dark: (0, 0, 0))
+
+// README header: the macOS tile in both palettes, chosen by GitHub's theme through <picture>.
+let readmeImages = root.appendingPathComponent("docs/images")
+try! FileManager.default.createDirectory(at: readmeImages, withIntermediateDirectories: true)
+write(render(size: 512, palette: .light, shape: .macOS), to: readmeImages.appendingPathComponent("icon-light.png"))
+write(render(size: 512, palette: .dark, shape: .macOS), to: readmeImages.appendingPathComponent("icon-dark.png"))
 
 // A side-by-side preview for review, not shipped.
 if let previewPath = CommandLine.arguments.dropFirst(2).first {
