@@ -13,6 +13,17 @@ public enum GammaTable {
         return base.map { min(max($0 * clamped, 0), 1) }
     }
 
+    /// Scale a table so that **linear light** changes by `gain`.
+    ///
+    /// A display applies its own transfer function on top of the table, so
+    /// multiplying the encoded value by `gain` changes luminance by
+    /// `gain^gamma`. To get a linear-light gain, multiply the encoded value by
+    /// `gain^(1/gamma)` instead.
+    public static func scaledLinear(_ base: [Double], by gain: Double, gamma: Double = 2.2) -> [Double] {
+        guard gamma > 0 else { return scaled(base, by: gain) }
+        return scaled(base, by: pow(min(max(gain, 0), 1), 1 / gamma))
+    }
+
     /// Linear ramp, useful for tests and for displays with no calibration table.
     public static func ramp(count: Int) -> [Double] {
         guard count > 1 else { return [0] }

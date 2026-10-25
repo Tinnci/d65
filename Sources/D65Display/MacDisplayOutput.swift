@@ -24,10 +24,13 @@ public struct DisplayTransferSnapshot: Sendable {
 /// state, which is what the Display pane's "Restore Defaults" does.
 public struct MacDisplayOutput: DisplayOutput {
     public let displayID: CGDirectDisplayID
+    /// Effective display gamma used to convert a linear-light gain into a table scale.
+    public var gamma: Double
     private static let capacity = 256
 
-    public init(displayID: CGDirectDisplayID = CGMainDisplayID()) {
+    public init(displayID: CGDirectDisplayID = CGMainDisplayID(), gamma: Double = 2.2) {
         self.displayID = displayID
+        self.gamma = gamma
     }
 
     public func probe() throws -> DisplayTransferSnapshot {
@@ -61,9 +64,9 @@ public struct MacDisplayOutput: DisplayOutput {
         let snapshot = try probe()
         let blended = gains.blended()
 
-        let red = GammaTable.scaled(snapshot.red, by: blended.r).map { Float($0) }
-        let green = GammaTable.scaled(snapshot.green, by: blended.g).map { Float($0) }
-        let blue = GammaTable.scaled(snapshot.blue, by: blended.b).map { Float($0) }
+        let red = GammaTable.scaledLinear(snapshot.red, by: blended.r, gamma: gamma).map { Float($0) }
+        let green = GammaTable.scaledLinear(snapshot.green, by: blended.g, gamma: gamma).map { Float($0) }
+        let blue = GammaTable.scaledLinear(snapshot.blue, by: blended.b, gamma: gamma).map { Float($0) }
 
         let error = CGSetDisplayTransferByTable(
             displayID,

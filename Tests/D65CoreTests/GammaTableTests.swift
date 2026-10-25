@@ -17,6 +17,14 @@ final class GammaTableTests: XCTestCase {
         XCTAssertEqual(GammaTable.scaled(base, by: 0), [0, 0, 0, 0, 0])
     }
 
+    func testLinearScalingCompensatesGamma() {
+        // A gain of 0.72 in linear light is 0.72^(1/2.2) in the encoded table.
+        let base = [0.5]
+        let encoded = GammaTable.scaledLinear(base, by: 0.72, gamma: 2.2)[0]
+        XCTAssertEqual(encoded, 0.5 * pow(0.72, 1 / 2.2), accuracy: 1e-12)
+        XCTAssertGreaterThan(encoded, 0.5 * 0.72, "encoded scale must be milder than the linear gain")
+    }
+
     func testRampEndpoints() {
         XCTAssertEqual(GammaTable.ramp(count: 256).first, 0)
         XCTAssertEqual(GammaTable.ramp(count: 256).last, 1)

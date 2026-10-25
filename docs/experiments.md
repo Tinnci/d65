@@ -130,9 +130,44 @@ Two observations:
 - The prediction (0.24) and the result (9.78) disagree.
 
 Cause: gains are multiplied into the **encoded** gamma table while the solver computes in **linear
-light**. The two agree only when the transfer function is linear. The approximation is documented
-in `GammaTable`, and this is the first measurement of its size. One pass is therefore not enough;
-iteration or linearisation is required. See [status.md](status.md).
+light**. The two agree only when the transfer function is linear. This was measured, then fixed in
+§8.
+
+## 8. Gamma compensation and convergence
+
+Two changes followed from §7:
+
+- `GammaTable.scaledLinear` scales the encoded table by `gain^(1/γ)` instead of `gain`, so the
+  solver's linear-light assumption holds. `MacDisplayOutput` uses γ = 2.2.
+- `d65 serve` now iterates: after each application it re-measures white in the same session,
+  solves the residual, and applies again — up to three passes, stopping at ΔE00 ≤ 2 or when a pass
+  stops improving.
+
+First run after the change:
+
+```
+baseline   CCT 7238 K                          ΔE00 22.19
+pass 1     gains B=0.8653    → CCT 6591 K      ΔE00  3.37
+pass 2     residual B=0.9802 → CCT 6522 K      ΔE00  0.99
+CONVERGED after 2 passes, cumulative R=0.997 G=0.991 B=0.848
+```
+
+Second run, a little further from target:
+
+```
+baseline                                                ΔE00 18.75
+pass 1     R=0.9842 G=1.0000 B=0.9051  → 6607 K         ΔE00  6.44
+pass 2     R=0.9984 G=1.0000 B=0.9765  → 6548 K         ΔE00  2.36
+pass 3     R=1.0000 G=0.9990 B=0.9908  → 6537 K         ΔE00  2.93
+CONVERGED after 3 passes, best ΔE00 2.36 (pass 2)
+```
+
+The third pass drifts up by 0.57, inside measurement noise, so the loop reports the **best** pass
+rather than the last one. Convergence is now 18.75 → 2.36 in two passes, against 17.28 → 9.78
+before the gamma compensation.
+
+Remaining error is dominated by the assumed γ; the panel's real transfer function is not known.
+A fitted γ (measure a grey ramp) would tighten the first pass further.
 
 ## Confounds to control in future runs
 

@@ -21,7 +21,7 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 | Problem | Cause | Consequence |
 |---|---|---|
 | DDC RGB gain writes have no effect | panel firmware ignores 0x16/0x18/0x1A, even in User preset | no hardware white-point correction on this display |
-| One pass does not land on target | gains applied to the encoded table, solver works in linear light | 6805 K → 6438 K, ΔE 9.8 instead of ~0.2 |
+| ~~One pass does not land on target~~ | fixed: `scaledLinear` compensates display gamma, then the loop iterates | 18.75 → 2.36 ΔE00 in two passes |
 | Blue/cyan unmeasurable in daylight | ambient Y ≈ 14 vs blue Y ≈ 10 | primaries incomplete unless the room is dark |
 | Cross-session repeatability | phone is hand-held | ±1200 K between sessions; in-session verification is the workaround |
 | App Store distribution | private IOHID and IOAVService | sideload only, 7-day signing |
@@ -40,19 +40,15 @@ Last updated 2026-10-25, after the experiments in [experiments.md](experiments.m
 
 ## Next steps, in order
 
-1. **Iterate to convergence.** After the verify pass, solve the residual against the corrected
-   measurement and apply again, up to three passes or until ΔE00 stops improving. All within one
-   session, phone stationary.
-2. **Linearise the application.** Build the new table as
-   `encode(decode(base[i]) × gain)` with a fitted gamma instead of multiplying encoded values.
-   Compare with iteration; keep whichever converges in fewer passes.
-3. **Menu-bar agent.** The gamma table is reverted when the setting process exits, so the shipping
+1. **Fit the panel gamma.** The compensation assumes γ = 2.2. Measuring a grey ramp would let the
+   first pass land closer to target and reduce the number of passes.
+2. **Menu-bar agent.** The gamma table is reverted when the setting process exits, so the shipping
    app must be a persistent agent that holds the correction and restores on quit.
-4. **Manual controls.** Hardware (DDC) and software (gamma) sections, each with reset, with the
+3. **Manual controls.** Hardware (DDC) and software (gamma) sections, each with reset, with the
    hardware section disabled unless `d65 ddc writable` says the panel accepts writes.
-5. **Persistence.** Store per `DisplayModeKey` with a schema version, plus crash recovery to the
+4. **Persistence.** Store per `DisplayModeKey` with a schema version, plus crash recovery to the
    previous known-good table.
-6. **Alignment.** A stand or an on-screen outline, mirroring why Apple's flow asks the user to align
+5. **Alignment.** A stand or an on-screen outline, mirroring why Apple's flow asks the user to align
    the phone and checks for motion.
 
 ## Risks

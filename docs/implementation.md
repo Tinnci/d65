@@ -23,7 +23,7 @@ Nothing in the libraries imports the CLI or the apps.
 | `WhitePointSolver` | measured white → per-channel gains; predicted white after gains |
 | `RGBGains` | three gains + blend alpha; `blended`, `attenuated`, `diagonalMatrix`, `luminanceScale` |
 | `QualityGate` | accept/reject thresholds: 2.5 pre, 5.0 post, 20 % luminance loss |
-| `GammaTable` | scale an existing transfer table; identity is an exact no-op |
+| `GammaTable` | scale a transfer table; `scaledLinear` compensates display gamma (`gain^(1/γ)`) |
 
 The solver works in linear RGB: `gains = (M⁻¹·target) / (M⁻¹·measured)`, then attenuates so the
 brightest channel is 1. Solving in XYZ instead would be subtly wrong for wide-gamut primaries.
@@ -88,8 +88,10 @@ re-measures; `--gamma-test` applies a fixed B=0.70 gain and re-measures.
 3. White → gains → predicted ΔE00 → quality gate.
 4. If the full correction is rejected, alpha steps down from 1.0 in 0.05 increments until the gate
    passes (largest usable blend).
-5. If applied, the white patch is shown again and re-measured **in the same session**, so the
-   phone cannot move between the before and after readings.
+5. If applied, the white patch is re-measured **in the same session**, so the phone cannot move
+   between the before and after readings. The residual is solved and applied again, up to three
+   passes, stopping at ΔE00 ≤ 2 or when a pass stops improving. The best pass is reported, and the
+   gamma table is restored at the end.
 
 The full-screen patch window is AppKit at `.screenSaver` level, created lazily on the main thread.
 

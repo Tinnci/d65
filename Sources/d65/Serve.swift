@@ -52,6 +52,16 @@ final class CalibrationServer {
     private var activeConnection: NWConnection?
     private let patch = PatchWindow()
 
+    // Convergence state (one session, phone stationary).
+    private var pass = 0
+    private var cumulativeGains = RGBGains.identity
+    private var previousDeltaE = Double.infinity
+    private var bestDeltaE = Double.infinity
+    private var bestGains = RGBGains.identity
+    private var convergenceAmbient = XYZ.zero
+    private let maximumPasses = 3
+    private let targetDeltaE = 2.0
+
     init(port: UInt16, applyToDisplay: Bool, ddcTest: Bool = false, gammaTest: Bool = false) throws {
         self.applyToDisplay = applyToDisplay
         self.ddcTest = ddcTest
@@ -352,14 +362,89 @@ final class CalibrationServer {
 
         do {
             try output.apply(gains)
-            print("       applied — re-measuring white without moving the phone")
+            print(String(format: "       pass 1 applied R=%.4f G=%.4f B=%.4f", gains.r, gains.g, gains.b))
         } catch {
             print("       apply failed: \(error)")
             sessionRunning = false
             return
         }
 
-        startVerification(ambient: ambient, before: pre, restoreRed: nil, resetGammaAfter: false)
+        convergenceAmbient = ambient
+        cumulativeGains = gains
+        previousDeltaE = pre
+        pass = 1
+        requestConvergenceMeasurement()
+    }
+
+    // MARK: - Convergence
+
+    private func requestConvergenceMeasurement() {
+        samples.removeAll()
+        DispatchQueue.main.async { self.patch.show(.white) }
+        send(.progress(phase: "verify", fraction: 1))
+        after(2.5) {
+            self.send(.progress(phase: "done", fraction: 0))
+            self.finishConvergenceMeasurement()
+        }
+    }
+
+    private func finishConvergenceMeasurement() {
+        guard let raw = mean(filtered(samples["verify"] ?? [])), raw.y > convergenceAmbient.y else {
+            print("       pass \(pass): no samples")
+            endConvergence()
+            return
+        }
+        let measured = subtract(raw, convergenceAmbient)
+        let target = Chromaticity.d65.xyz(luminance: measured.y)
+        let deltaE = ColorDifference.deltaE00(measured, target)
+        let cct = measured.chromaticity?.correlatedColorTemperature() ?? 0
+        print(String(format: "       pass %d: CCT≈%.0f K  ΔE00 %.2f  (previous %.2f)", pass, cct, deltaE, previousDeltaE))
+
+        if deltaE < bestDeltaE {
+            bestDeltaE = deltaE
+            bestGains = cumulativeGains
+        }
+        let improved = deltaE < previousDeltaE - 0.3
+        previousDeltaE = deltaE
+        if deltaE <= targetDeltaE || !improved || pass >= maximumPasses {
+            endConvergence()
+            return
+        }
+
+        let residual = WhitePointSolver.gains(measuredWhite: measured)
+        do {
+            try output.apply(residual)
+        } catch {
+            print("       pass \(pass + 1) apply failed: \(error)")
+            endConvergence()
+            return
+        }
+
+        cumulativeGains = RGBGains(
+            r: cumulativeGains.r * residual.r,
+            g: cumulativeGains.g * residual.g,
+            b: cumulativeGains.b * residual.b,
+            alpha: 1
+        )
+        previousDeltaE = deltaE
+        pass += 1
+        print(String(format: "       pass %d applied residual R=%.4f G=%.4f B=%.4f",
+                     pass, residual.r, residual.g, residual.b))
+        requestConvergenceMeasurement()
+    }
+
+    private func endConvergence() {
+        defer { sessionRunning = false }
+        try? output.reset()
+        DispatchQueue.main.async { self.patch.close() }
+
+        // Report the best pass, not necessarily the last one: the final
+        // measurement can drift within noise.
+        let useBest = bestDeltaE + 0.2 < previousDeltaE
+        let gains = useBest ? bestGains : cumulativeGains
+        let deltaE = useBest ? bestDeltaE : previousDeltaE
+        print(String(format: "CONVERGED after %d pass(es): gains R=%.4f G=%.4f B=%.4f  best ΔE00 %.2f%@  (gamma restored)",
+                     pass, gains.r, gains.g, gains.b, deltaE, useBest ? ", earlier pass" : ""))
     }
 
     /// Re-measure white in the same session so the phone cannot move.
