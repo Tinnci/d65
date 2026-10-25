@@ -42,6 +42,8 @@ final class CalibrationServer {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "d65.serve")
     private let applyToDisplay: Bool
+    private let ddcTest: Bool
+    private let gammaTest: Bool
     private let output = MacDisplayOutput()
     private let normalizer = MeasurementNormalizer(minimumLux: 1)
     private var buffers: [ObjectIdentifier: Data] = [:]
@@ -50,8 +52,10 @@ final class CalibrationServer {
     private var activeConnection: NWConnection?
     private let patch = PatchWindow()
 
-    init(port: UInt16, applyToDisplay: Bool) throws {
+    init(port: UInt16, applyToDisplay: Bool, ddcTest: Bool = false, gammaTest: Bool = false) throws {
         self.applyToDisplay = applyToDisplay
+        self.ddcTest = ddcTest
+        self.gammaTest = gammaTest
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
@@ -268,23 +272,79 @@ final class CalibrationServer {
             return
         }
 
-        let gains = WhitePointSolver.gains(measuredWhite: white)
+        let gate = QualityGate()
+        let full = WhitePointSolver.gains(measuredWhite: white)
         let target = Chromaticity.d65.xyz(luminance: white.y)
-        let predicted = WhitePointSolver.predictedWhite(after: gains, measuredWhite: white)
         let pre = ColorDifference.deltaE00(white, target)
-        let post = ColorDifference.deltaE00(predicted, target)
-        let verdict = QualityGate().verdict(
-            preDeltaE: pre,
-            postDeltaE: post,
-            luminanceScale: gains.luminanceScale
-        )
+        let fullPredicted = WhitePointSolver.predictedWhite(after: full, measuredWhite: white)
+        let fullPost = ColorDifference.deltaE00(fullPredicted, target)
 
-        print(String(format: "white  CCT≈%.0f K  gains R=%.4f G=%.4f B=%.4f  ΔE00 %.2f → %.2f  verdict=%@",
+        print(String(format: "white  CCT≈%.0f K  full gains R=%.4f G=%.4f B=%.4f  ΔE00 %.2f → %.2f  (luminance ×%.3f)",
                      white.chromaticity?.correlatedColorTemperature() ?? 0,
-                     gains.r, gains.g, gains.b, pre, post, verdict.rawValue))
+                     full.r, full.g, full.b, pre, fullPost, full.luminanceScale))
 
-        guard verdict == .improved, applyToDisplay else {
-            print(verdict == .improved ? "       would apply (use --apply)" : "       not applied")
+        if pre <= gate.minimumPreCorrectionDeltaE {
+            print("       display already within tolerance — nothing applied")
+            DispatchQueue.main.async { self.patch.close() }
+            sessionRunning = false
+            return
+        }
+
+        // Find the largest blend that still passes the gate. A full correction
+        // can be rejected for losing too much luminance; a partial one usually
+        // is not, and is better than nothing.
+        var chosen: (gains: RGBGains, post: Double, alpha: Double)?
+        var alpha = 1.0
+        while alpha >= 0.05 {
+            let candidate = full.blended(alpha: alpha)
+            let predicted = WhitePointSolver.predictedWhite(after: candidate, measuredWhite: white)
+            let post = ColorDifference.deltaE00(predicted, target)
+            if gate.verdict(preDeltaE: pre, postDeltaE: post, luminanceScale: candidate.luminanceScale) == .improved {
+                chosen = (candidate, post, alpha)
+                break
+            }
+            alpha -= 0.05
+        }
+
+        guard let chosen else {
+            print("       rejected by quality gate at every blend — nothing applied")
+            DispatchQueue.main.async { self.patch.close() }
+            sessionRunning = false
+            return
+        }
+
+        let gains = chosen.gains
+        print(String(format: "       selected alpha=%.2f  R=%.4f G=%.4f B=%.4f  ΔE00 %.2f → %.2f  luminance ×%.3f",
+                     chosen.alpha, gains.r, gains.g, gains.b, pre, chosen.post, gains.luminanceScale))
+
+        if gammaTest {
+            let test = RGBGains(r: 1.0, g: 1.0, b: 0.70)
+            do {
+                try output.apply(test)
+                print("       applied test gains R=1.000 G=1.000 B=0.700; re-measuring white")
+                startVerification(ambient: ambient, before: pre, restoreRed: nil, resetGammaAfter: true)
+            } catch {
+                print("       gamma apply failed: \(error)")
+                sessionRunning = false
+            }
+            return
+        }
+
+        if ddcTest {
+            if let display = DDCDisplay.external(), let red = display.read(DDCDisplay.redGain) {
+                let target = red.current > 25 ? red.current - 25 : 0
+                _ = display.write(DDCDisplay.redGain, value: target)
+                print("       DDC red gain \(red.current) -> \(target); re-measuring white")
+                startVerification(ambient: ambient, before: pre, restoreRed: red.current, resetGammaAfter: false)
+            } else {
+                print("       DDC unavailable")
+                sessionRunning = false
+            }
+            return
+        }
+
+        guard applyToDisplay else {
+            print("       would apply (use --apply)")
             DispatchQueue.main.async { self.patch.close() }
             sessionRunning = false
             return
@@ -299,19 +359,27 @@ final class CalibrationServer {
             return
         }
 
-        // Verify in the same session, so geometry cannot change.
+        startVerification(ambient: ambient, before: pre, restoreRed: nil, resetGammaAfter: false)
+    }
+
+    /// Re-measure white in the same session so the phone cannot move.
+    private func startVerification(ambient: XYZ, before: Double, restoreRed: UInt16?, resetGammaAfter: Bool) {
         samples.removeAll()
         DispatchQueue.main.async { self.patch.show(.white) }
         send(.progress(phase: "verify", fraction: 1))
         after(2.5) {
             self.send(.progress(phase: "done", fraction: 0))
             DispatchQueue.main.async { self.patch.close() }
-            self.finishVerification(ambient: ambient, before: pre)
+            self.finishVerification(ambient: ambient, before: before, restoreRed: restoreRed, resetGammaAfter: resetGammaAfter)
         }
     }
 
-    private func finishVerification(ambient: XYZ, before: Double) {
+    private func finishVerification(ambient: XYZ, before: Double, restoreRed: UInt16?, resetGammaAfter: Bool) {
         defer { sessionRunning = false }
+        if let restoreRed, let display = DDCDisplay.external() {
+            _ = display.write(DDCDisplay.redGain, value: restoreRed)
+            print("       DDC red gain restored to \(restoreRed)")
+        }
         guard let raw = mean(filtered(samples["verify"] ?? [])), raw.y > ambient.y else {
             print("verify: no samples")
             return
@@ -319,6 +387,10 @@ final class CalibrationServer {
         let after = subtract(raw, ambient)
         let target = Chromaticity.d65.xyz(luminance: after.y)
         let deltaE = ColorDifference.deltaE00(after, target)
+        if resetGammaAfter {
+            try? output.reset()
+            print("       gamma table restored")
+        }
         print(String(
             format: "VERIFY after apply: Y=%.2f  x=%.4f y=%.4f  CCT≈%.0f K  ΔE00 %.2f → %.2f",
             after.y,

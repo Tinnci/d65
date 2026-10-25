@@ -207,7 +207,12 @@ struct D65CLI {
         application.setActivationPolicy(.accessory)
 
         do {
-            let server = try CalibrationServer(port: port, applyToDisplay: apply)
+            let server = try CalibrationServer(
+                port: port,
+                applyToDisplay: apply,
+                ddcTest: arguments.contains("--ddc-test"),
+                gammaTest: arguments.contains("--gamma-test")
+            )
             server.start()
             print("apply to display: \(apply ? "yes" : "no (use --apply)")")
             print("press Ctrl-C to stop")
