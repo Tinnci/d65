@@ -48,6 +48,26 @@ The only place that knows about colour.
   dynamic range, chroma), with a stable persistence key.
 - `NullDisplayOutput` — for tests and previews.
 
+## Output adapter (macOS)
+
+`MacDisplayOutput` scales the display's existing transfer table with
+`CGSetDisplayTransferByTable`, reads it back with `CGGetDisplayTransferByTable`, and restores with
+`CGDisplayRestoreColorSyncSettings()`. All public API.
+
+Two properties matter:
+
+- It multiplies the **encoded** table, not linear light. That keeps the display's existing
+  calibration curve intact and makes identity gains an exact no-op; a colorimetrically pure version
+  would decode, scale, and re-encode, and would also need to know the panel's actual gamma.
+- **macOS reverts the table when the process that set it exits.** Verified on this machine: while
+  the setter is alive, another process reads the scaled table; once it exits, the original table is
+  back. So `d65 display apply` needs `--hold`, and the shipping app has to be a persistent agent
+  (menu bar) rather than a fire-and-forget command.
+
+ICC output is a separate adapter by design: a profile only affects colour-managed apps, while the
+gamma table affects everything on the display. They are not interchangeable, and the code should
+never silently substitute one for the other.
+
 ## Data flow
 
 ```

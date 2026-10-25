@@ -1,4 +1,5 @@
 import D65Core
+import D65Display
 import Foundation
 
 @main
@@ -20,6 +21,8 @@ struct D65CLI {
             runCCT(arguments)
         case "verify":
             runVerification(arguments)
+        case "display":
+            runDisplay(arguments)
         case "-h", "--help", "help":
             printUsage()
         default:
@@ -47,6 +50,15 @@ struct D65CLI {
 
               d65 verify <preDeltaE> <postDeltaE> [--luminance-scale <s>]
                   Apply the quality gate and print the verdict.
+
+              d65 display probe
+                  Read the current gamma table of the main display (no changes).
+
+              d65 display apply --r <g> --g <g> --b <g> [--alpha <a>]
+                  Scale the main display's gamma table by the given gains.
+
+              d65 display reset
+                  Restore the system ColorSync display settings.
             """
         )
     }
@@ -104,6 +116,70 @@ struct D65CLI {
             luminanceScale: options["luminance-scale"] ?? 1
         )
         print(verdict.rawValue)
+    }
+
+    static func runDisplay(_ arguments: [String]) {
+        #if os(macOS)
+        guard let subcommand = arguments.first else {
+            fail("display expects probe, apply or reset")
+        }
+        let options = parseOptions(arguments)
+        let output = MacDisplayOutput()
+
+        switch subcommand {
+        case "probe":
+            do {
+                let snapshot = try output.probe()
+                print("display \(snapshot.displayID)  table entries=\(snapshot.count)")
+                let indices: [Int] = [0, snapshot.count / 4, snapshot.count / 2, 3 * snapshot.count / 4, snapshot.count - 1]
+                func formatted(_ name: String, _ table: [Double]) -> String {
+                    let values = indices.map { String(format: "%.4f", table[$0]) }
+                    return "  " + name + ": " + values.joined(separator: "  ")
+                }
+                print(formatted("R", snapshot.red))
+                print(formatted("G", snapshot.green))
+                print(formatted("B", snapshot.blue))
+                print("  (positions: 0, 25%, 50%, 75%, 100%)")
+            } catch {
+                fail("probe failed: \(error)")
+            }
+
+        case "apply":
+            guard let r = options["r"], let g = options["g"], let b = options["b"] else {
+                fail("apply needs --r, --g and --b")
+            }
+            let gains = RGBGains(r: r, g: g, b: b, alpha: options["alpha"] ?? 1).blended()
+            do {
+                try output.apply(gains)
+                print(String(format: "applied  R=%.4f  G=%.4f  B=%.4f", gains.r, gains.g, gains.b))
+
+                let hold = options["hold"] ?? 0
+                if hold > 0 {
+                    print(String(format: "holding for %.1fs — macOS reverts the table when this process exits", hold))
+                    Thread.sleep(forTimeInterval: hold)
+                    try output.reset()
+                    print("restored ColorSync display settings")
+                } else {
+                    print("note: macOS restores the table as soon as this process exits; use --hold to keep it")
+                }
+            } catch {
+                fail("apply failed: \(error)")
+            }
+
+        case "reset":
+            do {
+                try output.reset()
+                print("restored ColorSync display settings")
+            } catch {
+                fail("reset failed: \(error)")
+            }
+
+        default:
+            fail("unknown display subcommand: \(subcommand)")
+        }
+        #else
+        fail("display commands are macOS only")
+        #endif
     }
 
     // MARK: - Parsing

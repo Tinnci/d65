@@ -28,7 +28,13 @@ alone:
 swift build
 swift run d65 selftest
 swift run d65 gains 0.94 1.00 1.05
+swift run d65 display probe                                  # read-only
+swift run d65 display apply --r 0.97 --g 0.95 --b 1.0 --hold 10
+swift run d65 display reset
 ```
+
+`--hold` matters: macOS restores the gamma table as soon as the process that set it exits, so an
+un-held `apply` is effectively a no-op. The app holds the correction for as long as it runs.
 
 ```
 measured   x=0.3144 y=0.3344  CCT≈6382 K
@@ -97,7 +103,9 @@ applied as per-channel gains through the render server. The full write-up — co
 
 ## Roadmap
 
-- [ ] macOS output adapter: render-server colour matrix, with per-display-mode persistence
+- [x] macOS output adapter: gamma-table gains, verified apply/read-back/reset
+- [ ] Menu-bar agent that holds the correction across process lifetime
+- [ ] Per-display-mode persistence and restore after crash
 - [ ] Probe acquisition: external sensor (supported) or sideloaded IOHID ALS (experimental, see docs/research/als-iohid.md)
 - [ ] End-to-end session over `D65Link` (Bonjour + framing)
 - [ ] Calibration store keyed by `DisplayModeKey`, with the `QualityGate` verdict recorded
