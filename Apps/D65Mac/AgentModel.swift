@@ -49,6 +49,17 @@ import SwiftUI
     }
 
     @Published private(set) var rows: [Row] = []
+    struct HardwareControls {
+        var values: [MonitorAdjustment: DDCValue] = [:]
+        var loading = false
+        var writing = false
+        var message: String?
+    }
+    @Published private(set) var hardwareControls: [String: HardwareControls] = [:]
+    @Published private(set) var controlsPaused = false
+    private let monitorControl = TrayMonitorControl()
+    @Published private(set) var controlGeneration = UUID()
+
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published var loginItemError: String?
     @AppStorage("showsProgressOnPatches") var showsProgressOnPatches = true
@@ -115,6 +126,10 @@ import SwiftUI
     func refresh(reapply: Bool = false) {
         guard holdsDisplays else { return }
         let online = DisplayDirectory.online()
+        if Set(online) != Set(rows.map(\.display)) {
+            controlGeneration = UUID()
+            hardwareControls = [:]
+        }
         // A display that left or changed ID has lost its table already; forget the hold without restoring.
         for (identity, entry) in holds where !online.contains(where: { $0.identity == identity && $0.id == entry.displayID }) {
             holds[identity] = nil
@@ -163,10 +178,14 @@ import SwiftUI
     }
 
     private func didWake() {
+        controlGeneration = UUID()
+        hardwareControls = [:]
         DisplayDirectory.refreshMonitorControl()
         pollPausedUntil = Date().addingTimeInterval(5)
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(6))
+            self.hardwareControls = [:]
+            self.controlGeneration = UUID()
             self.pollMonitorSettings()
         }
     }
@@ -184,6 +203,50 @@ import SwiftUI
     }
 
     // MARK: User actions
+
+    func loadHardwareControls(for display: DisplayInfo) async {
+        guard !display.isBuiltin, !controlsPaused,
+              hardwareControls[display.identity]?.loading != true,
+              hardwareControls[display.identity]?.writing != true else { return }
+        let generation = controlGeneration
+        hardwareControls[display.identity, default: HardwareControls()].loading = true
+        let values = await monitorControl.read(displayID: display.id, identity: display.identity)
+        guard generation == controlGeneration, !controlsPaused,
+              rows.contains(where: { $0.display == display }) else { return }
+        hardwareControls[display.identity] = HardwareControls(values: values)
+    }
+
+    func adjust(_ control: MonitorAdjustment, to value: UInt16, for display: DisplayInfo) async {
+        guard holdsDisplays, !controlsPaused,
+              var state = hardwareControls[display.identity], !state.writing, !state.loading,
+              let previous = state.values[control] else { return }
+        let generation = controlGeneration
+        state.writing = true
+        state.message = nil
+        hardwareControls[display.identity] = state
+        do {
+            let actual = try await monitorControl.set(control, value: value, maximum: previous.maximum,
+                                                       displayID: display.id, identity: display.identity)
+            state.values[control] = actual
+        } catch {
+            switch error {
+            case AdjustmentError.notAccepted(let actual):
+                state.values[control] = actual
+                state.message = "The monitor did not accept the \(control.title.lowercased()) setting."
+            case AdjustmentError.unverified:
+                state.values[control] = nil
+                state.message = "Couldn’t verify \(control.title.lowercased()). Refresh to read the monitor."
+            default:
+                state.message = "Couldn’t change \(control.title.lowercased()). Check that DDC/CI is enabled in the monitor’s menu."
+            }
+        }
+        guard generation == controlGeneration, !controlsPaused,
+              rows.contains(where: { $0.display == display }) else { return }
+        state.writing = false
+        hardwareControls[display.identity] = state
+        // Contrast is a guarded calibration setting; reflect the new verdict immediately.
+        if control == .contrast { pollMonitorSettings() }
+    }
 
     func setEnabled(_ enabled: Bool, for row: Row) {
         guard let entry = holds[row.id] else { refresh(); return }
@@ -219,8 +282,13 @@ import SwiftUI
     // MARK: Session hand-off
 
     /// The engine must capture the display's original table, so any held correction steps aside.
-    func prepareForCalibration(identity: String) {
+    func prepareForCalibration(identity: String) async {
         calibrating = identity
+        controlsPaused = true
+        controlGeneration = UUID()
+        // Await the worker so an already-running adjustment finishes before patch measurement.
+        await monitorControl.setSuspended(true)
+        guard calibrating == identity, !Task.isCancelled else { return }
         try? holds[identity]?.hold.release()
         holds[identity] = nil
         refresh()
@@ -252,6 +320,15 @@ import SwiftUI
             holds[identity] = nil
         }
         calibrating = nil
+        hardwareControls = [:]
+        controlGeneration = UUID()
+        Task {
+            guard calibrating == nil else { return }
+            await monitorControl.setSuspended(false)
+            guard calibrating == nil else { return }
+            controlsPaused = false
+            controlGeneration = UUID()
+        }
         readings.removeAll()
         refresh()
         pollMonitorSettings()

@@ -37,6 +37,7 @@ import SwiftUI
     let agent: AgentModel
     private var service: CalibrationService?
     private var autoStartArmed = true
+    private var calibrationStart: Task<Void, Never>?
     var onClose: (() -> Void)?
 
     init(agent: AgentModel) { self.agent = agent; reloadDisplays() }
@@ -143,18 +144,28 @@ import SwiftUI
             return
         }
         guard step == .place, let display = selected, let service else { return }
-        agent.prepareForCalibration(identity: display.identity)
         patchIndex = 0; passes = []; verifyingPass = nil; record = nil; summary = nil; saveError = nil
         phase = CalibrationPatch.sequence[0].name
         step = .measure
-        service.run(configuration: targetConfiguration, displayID: display.id)
+        calibrationStart = Task {
+            await agent.prepareForCalibration(identity: display.identity)
+            guard !Task.isCancelled, step == .measure else { return }
+            calibrationStart = nil
+            service.run(configuration: targetConfiguration, displayID: display.id)
+        }
     }
 
     func back() {
         switch step {
         case .connect: step = .prepare
         case .place: service?.endPlacement(announceCancellation: true); step = .prepare
-        case .measure: service?.cancelRun()
+        case .measure:
+            if let calibrationStart {
+                calibrationStart.cancel()
+                self.calibrationStart = nil
+                agent.finishCalibration()
+                step = .place
+            } else { service?.cancelRun() }
         default: break
         }
     }
@@ -178,6 +189,8 @@ import SwiftUI
     }
 
     func shutdown() async {
+        calibrationStart?.cancel()
+        calibrationStart = nil
         let service = self.service
         self.service = nil
         comparing = false

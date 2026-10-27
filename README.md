@@ -62,6 +62,14 @@ The figures are generated from the recorded sessions by `python3 scripts/make-fi
   <img align="right" src="docs/images/icon-light.png" width="104" height="104" alt="D65 app icon">
 </picture>
 
+The menu bar includes hardware brightness, contrast, and speaker-volume sliders for external monitors
+that answer DDC/CI. Each control uses the monitor’s reported range and reads back adjustments; controls
+that do not answer are hidden. Enable DDC/CI in the monitor’s on-screen menu if no controls appear,
+and use the refresh button after changing monitor settings. Hardware adjustments persist on the
+monitor after D65 quits. Changing contrast can make a stored correction stale. Controls pause during
+calibration. This uses the existing Apple silicon DDC transport; availability depends on the monitor,
+cable, and dock.
+
 A menu-bar agent with a five-step calibration window. The icon's ring holds the white point on D65;
 behind it runs the Planckian locus, cool to warm. While its patches are up the Mac holds the display awake, and the
 phone keeps its own screen on for the whole session, so idle sleep, the screen saver or auto-lock
