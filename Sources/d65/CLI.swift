@@ -95,10 +95,10 @@ struct D65CLI {
                   Apply the quality gate and print the verdict.
 
               d65 display list
-                  List display IDs for --display-id.
+                  List display IDs for --display-id. (macOS and Windows)
 
               d65 display probe [--display-id <id>]
-                  Read the current gamma table of the selected display (no changes).
+                  Read the current gamma table of the selected display (no changes). (macOS and Windows)
 
               d65 display apply --r <g> --g <g> --b <g> [--alpha <a>]
                   Scale the selected display's gamma table by the given gains.
@@ -108,13 +108,14 @@ struct D65CLI {
 
               d65 serve [--port <p>] [--display-id <id>] [--apply] [--metric ciede2000|cam16-ucs]
                         [--viewer cie2015-2|cie2015-10 --spectra <file.csv>]
-                  Advertise _d65._tcp and solve gains from probe measurements.
+                  Advertise _d65._tcp and solve gains from probe measurements. (macOS and Windows)
 
               d65 ddc probe [--display-id <id>]
                   Read the guarded settings, gains, input, display mode and MCCS version, with timings.
+                  (macOS and Windows)
 
               d65 ddc capabilities [--display-id <id>]
-                  Read and parse the monitor's MCCS capabilities string.
+                  Read and parse the monitor's MCCS capabilities string. (macOS and Windows)
 
               d65 ddc gain --r <n> --g <n> --b <n>
                   Write RGB gain (VCP 0x16/0x18/0x1A) and verify the read-back.

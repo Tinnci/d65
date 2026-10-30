@@ -13,7 +13,9 @@ owns the workflow used by the CLI and Mac app. Platform and transport adapters s
 | D65Calibration | session lifecycle, correction passes, effect tests, experiment records | Core, Measurement, Display |
 | D65ProbeSupport | pure probe haptic patterns, scene timing and sampling guard | Measurement |
 | D65Link | versioned messages and bounded length-prefixed JSON framing | Core, Measurement |
-| D65MacRuntime | selected display, patch window, network probe and service | Calibration, Link, Display |
+| D65Host | the probe service: connection lease, placement, runs, completion messages | Calibration, Link, Measurement |
+| D65MacRuntime | Network.framework listener, AppKit patch window, selected display | Host, Calibration, Link, Display |
+| D65WindowsRuntime | Winsock listener with DNS-SD, Win32 patch window, GDI gamma ramps, dxva2 DDC/CI | Host, Calibration, Link, Display |
 | d65 / D65Mac | command/UI configuration and presentation of results | libraries above |
 
 The probe reads the ambient-light sensor through a private IOHID monitor client, restricted by
@@ -21,6 +23,16 @@ service matching to the built-in light sensor (`Apps/D65Probe/AmbientLightSensor
 Simulator it uses a labelled simulated source. The original acquisition experiment stays in the
 ignored `local/als-probe` directory and shares its network client from `Apps/D65Probe/LinkClient.swift`. The probe
 never solves a correction.
+
+## Desktop hosts
+
+`D65Host.CalibrationService` is the same on every desktop platform. A platform supplies a
+`ProbeListener` (TCP on 50515, advertised as `_d65._tcp`), and a `HostPlatform` that makes the
+patch window (`HostOverlay`) and the `CalibrationDisplay` for a display ID. macOS uses
+Network.framework, AppKit and CoreGraphics; Windows uses Winsock and `DnsServiceRegister`, a
+topmost Win32 window, `SetDeviceGammaRamp` and the dxva2 monitor configuration API. One difference
+matters for safety: macOS reverts gamma tables when the process exits, Windows keeps them, so the
+Windows host restores on Ctrl-C and console close as well as at the end of every run.
 
 ## Session ownership
 

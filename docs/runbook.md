@@ -77,6 +77,34 @@ Use `serve` without `--apply` for measurement only. `--apply` never keeps a corr
 experiment. Ctrl-C/SIGTERM stops the host through cleanup; closing the probe mid-run cancels the
 measurement. Restoration errors are reported and retained in the experiment record.
 
+## Windows
+
+The Windows host is the CLI's `serve`, with the same protocol, engine and records as on the Mac. It
+needs Windows 10 1809 or later (for DNS-SD advertisement) and the
+[Swift toolchain for Windows](https://www.swift.org/install/windows/). It has been verified in CI on
+a virtual display, not yet on a real monitor with the probe.
+
+```powershell
+swift build
+.build\debug\d65.exe display list
+.build\debug\d65.exe display probe --display-id <id>
+.build\debug\d65.exe ddc probe --display-id <id>
+.build\debug\d65.exe serve --apply --display-id <id>
+```
+
+- **Firewall.** The first `serve` triggers a Windows Defender Firewall prompt; allow it on private
+  networks, or the phone cannot connect.
+- **Gamma limits.** Windows rejects gamma ramps far from neutral. Ordinary white corrections fit;
+  if `serve` reports the ramp was refused, set the DWORD
+  `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM\GdiIcmGammaRange` to 256 and sign out.
+- **HDR.** Windows ignores gamma ramps while HDR is on. Calibrate in SDR.
+- **Restoration.** Windows keeps a ramp after the process exits. The engine restores at the end of
+  every run, and `serve` restores on Ctrl-C or when the console closes. If the process is killed
+  outright, restore with Display settings → Advanced display → Display adapter properties → Color
+  Management → Advanced → Reset, or by reconnecting the monitor.
+- **DDC/CI** goes through Windows' own monitor configuration API, so `ddc probe` and
+  `ddc capabilities` need no driver.
+
 ## Optional pre-contact depth aid
 
 Tap **Use TrueDepth alignment** on the phone and allow Camera access if you want approximate

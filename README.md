@@ -122,6 +122,9 @@ display is touched.</sub>
   [monitor report](.github/ISSUE_TEMPLATE/monitor-report.md) helps most.
 - **Software correction.** The gamma table only applies while D65 runs, and macOS reverts it when
   D65 quits. Hardware gain over DDC/CI is ignored by the test panel.
+- **Windows is command-line only, and untested on hardware.** `d65 serve` runs a full calibration
+  session on Windows 10 1809 or later, verified in CI on a virtual display; see the
+  [Windows section of the runbook](docs/runbook.md#windows). There is no tray app yet.
 - **White only.** A diagonal gain can't fix gamut or tone response.
 
 ## Why the name
@@ -194,10 +197,12 @@ Sources/D65Measurement   measurement model and normalisation
 Sources/D65Link          wire protocol and length-prefixed framing
 Sources/D65Display       gamma transactions, DDC and mode keys
 Sources/D65Calibration   shared session engine, measurements, structured records
-Sources/D65MacRuntime    selected screen, patch presenter and Bonjour host
-Sources/d65              CLI: selftest, gains, cct, verify
+Sources/D65Host          the probe service shared by every desktop host
+Sources/D65MacRuntime    Mac listener, patch window and selected display
+Sources/D65WindowsRuntime Windows listener (Winsock, DNS-SD), patch window, gamma ramps, DDC/CI
+Sources/d65              CLI: selftest, gains, cct, verify, serve (macOS and Windows)
 Apps/D65Mac              menu-bar agent and calibration session (SwiftUI)
-Apps/D65Probe            iPhone probe (SwiftUI); sensor injected locally
+Apps/D65Probe            iPhone probe (SwiftUI) and its ambient-light reader
 docs/status.md           what works, what does not, next steps
 docs/implementation.md   modules, CLI reference, wire protocol
 docs/experiments.md      every measurement, with numbers
@@ -300,6 +305,8 @@ applied as per-channel gains through the render server. The full write-up — co
 - [x] End-to-end session over `D65Link` (Bonjour, protocol v4 with placement and optional depth alignment)
 - [x] Correction store keyed by display identity and mode, with the monitor settings it was measured at
 - [ ] Golden-dataset validation against a real colorimeter
+- [x] Windows host for `d65 serve` (gamma ramps, DDC/CI via dxva2, DNS-SD), CI-verified
+- [ ] Windows on real hardware, then a Windows tray app
 
 ## Licence
 
