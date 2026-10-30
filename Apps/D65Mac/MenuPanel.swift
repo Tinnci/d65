@@ -26,8 +26,11 @@ struct MenuPanel: View {
                 NSApp.activate(ignoringOtherApps: true)
             }
             Divider().padding(.vertical, 4)
-            MenuButton(title: "Quit D65", shortcut: "⌘Q") { NSApp.terminate(nil) }
-                .keyboardShortcut("q")
+            MenuButton(title: "Quit D65", shortcut: "⌘Q") {
+                QuitReason.requested = "Quit D65 in the menu"
+                NSApp.terminate(nil)
+            }
+            .keyboardShortcut("q")
             Text("Quitting removes all corrections until D65 runs again.")
                 .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.bottom, 4)
         }

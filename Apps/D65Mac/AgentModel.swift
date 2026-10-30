@@ -78,6 +78,11 @@ import SwiftUI
     private var userPaused: Set<String> = []
     private var calibrating: String?
     private var poll: Timer?
+    /// The last stale reason logged per display, so the log records changes rather than every poll.
+    private var loggedStale: [String: String] = [:]
+
+    /// Displays whose correction is on the screen right now (held or previewed).
+    var heldCount: Int { holds.values.filter { $0.hold.state == .held || $0.hold.state == .previewing }.count }
 
     /// `holdsDisplays: false` reads the store and the monitors but never writes a gamma table
     /// (used by the debug showcase, which may run beside the real agent).
@@ -129,6 +134,15 @@ import SwiftUI
         if Set(online) != Set(rows.map(\.display)) {
             controlGeneration = UUID()
             hardwareControls = [:]
+            for display in online where !rows.contains(where: { $0.display == display }) {
+                Log.display.notice("""
+                    display online: \(display.name, privacy: .public) [\(display.id)] \
+                    \(display.width)×\(display.height) @ \(Int(display.refreshRate.rounded())) Hz\(display.isBuiltin ? ", built-in" : "", privacy: .public)
+                    """)
+            }
+            for row in rows where !online.contains(row.display) {
+                Log.display.notice("display offline: \(row.display.name, privacy: .public) [\(row.display.id)]")
+            }
         }
         // A display that left or changed ID has lost its table already; forget the hold without restoring.
         for (identity, entry) in holds where !online.contains(where: { $0.identity == identity && $0.id == entry.displayID }) {
@@ -139,8 +153,18 @@ import SwiftUI
             let hold = self.hold(for: display)
             do {
                 if userPaused.contains(display.identity) { continue }
-                if hold.gains == correction.gains, hold.state == .held { if reapply { try hold.reassert() } }
-                else if hold.state != .previewing, hold.state != .paused { try hold.hold(correction.gains, gamma: correction.gamma) }
+                if hold.gains == correction.gains, hold.state == .held {
+                    if reapply {
+                        try hold.reassert()
+                        Log.correction.info("reasserted correction on \(display.name, privacy: .public) after reconfiguration")
+                    }
+                } else if hold.state != .previewing, hold.state != .paused {
+                    try hold.hold(correction.gains, gamma: correction.gamma)
+                    Log.correction.notice("""
+                        holding correction on \(display.name, privacy: .public): \
+                        gains \(Self.describe(correction.gains), privacy: .public), gamma \(correction.gamma, format: .fixed(precision: 3))
+                        """)
+                }
             } catch { setError("Couldn’t apply the correction: \(error)", for: display.identity) }
         }
         rows = online.map { display in
@@ -158,6 +182,25 @@ import SwiftUI
                        verdict: verdict, error: rows.first { $0.id == display.identity }?.error)
         }
         .sorted { !$0.display.isBuiltin && $1.display.isBuiltin }
+        logStaleChanges()
+    }
+
+    /// One line when a correction becomes stale, changes reason, or matches the monitor again.
+    private func logStaleChanges() {
+        for row in rows where row.correction != nil {
+            let reason = row.stale?.description
+            guard loggedStale[row.id] != reason else { continue }
+            if let reason {
+                Log.correction.notice("correction on \(row.display.name, privacy: .public) is stale: \(reason, privacy: .public)")
+            } else if loggedStale[row.id] != nil {
+                Log.correction.notice("correction on \(row.display.name, privacy: .public) matches the monitor again")
+            }
+            loggedStale[row.id] = reason
+        }
+    }
+
+    private static func describe(_ gains: RGBGains) -> String {
+        String(format: "R %.4f G %.4f B %.4f", gains.r, gains.g, gains.b)
     }
 
     /// Read guarded settings for displays whose correction records any. Skipped during a session
@@ -167,6 +210,7 @@ import SwiftUI
         let targets = rows.filter { $0.correction.map { !$0.guardedSettings.isEmpty } == true && CGDisplayIsAsleep($0.display.id) == 0 }
             .map { ($0.display.identity, $0.display.id) }
         guard !targets.isEmpty else { return }
+        Log.ddc.debug("polling guarded settings on \(targets.count) display(s)")
         Task.detached(priority: .utility) {
             var results: [String: MonitorReading] = [:]
             for (identity, id) in targets { results[identity] = DisplayDirectory.monitorReading(displayID: id) }
@@ -178,6 +222,7 @@ import SwiftUI
     }
 
     private func didWake() {
+        Log.lifecycle.notice("system woke; DDC polls wait 5 s, \(self.heldCount) correction(s) held")
         controlGeneration = UUID()
         hardwareControls = [:]
         DisplayDirectory.refreshMonitorControl()
@@ -199,6 +244,10 @@ import SwiftUI
     }
 
     private func setError(_ text: String?, for identity: String) {
+        if let text {
+            let name = rows.first { $0.id == identity }?.display.name ?? identity
+            Log.correction.error("\(name, privacy: .public): \(text, privacy: .public)")
+        }
         if let index = rows.firstIndex(where: { $0.id == identity }) { rows[index].error = text }
     }
 
@@ -213,6 +262,13 @@ import SwiftUI
         let values = await monitorControl.read(displayID: display.id, identity: display.identity)
         guard generation == controlGeneration, !controlsPaused,
               rows.contains(where: { $0.display == display }) else { return }
+        if values.isEmpty {
+            Log.ddc.info("no DDC/CI controls answered on \(display.name, privacy: .public)")
+        } else {
+            let summary = values.sorted { $0.key.title < $1.key.title }
+                .map { "\($0.key.title) \($0.value.current)/\($0.value.maximum)" }.joined(separator: ", ")
+            Log.ddc.info("read \(display.name, privacy: .public): \(summary, privacy: .public)")
+        }
         hardwareControls[display.identity] = HardwareControls(values: values)
     }
 
@@ -228,7 +284,15 @@ import SwiftUI
             let actual = try await monitorControl.set(control, value: value, maximum: previous.maximum,
                                                        displayID: display.id, identity: display.identity)
             state.values[control] = actual
+            Log.ddc.notice("""
+                set \(control.title, privacy: .public) on \(display.name, privacy: .public) \
+                to \(actual.current)/\(actual.maximum) (requested \(value))
+                """)
         } catch {
+            Log.ddc.error("""
+                \(control.title, privacy: .public) write to \(value) on \(display.name, privacy: .public) \
+                failed: \(String(describing: error), privacy: .public)
+                """)
             switch error {
             case AdjustmentError.notAccepted(let actual):
                 state.values[control] = actual
@@ -253,6 +317,7 @@ import SwiftUI
         do {
             try entry.hold.setPaused(!enabled)
             if enabled { userPaused.remove(row.id) } else { userPaused.insert(row.id) }
+            Log.correction.notice("correction on \(row.display.name, privacy: .public) turned \(enabled ? "on" : "off", privacy: .public)")
             setError(nil, for: row.id)
         } catch { setError("Couldn’t change the correction: \(error)", for: row.id) }
         refresh()
@@ -266,12 +331,18 @@ import SwiftUI
         try? holds[row.id]?.hold.release()
         holds[row.id] = nil
         userPaused.remove(row.id)
-        try? store.remove(displayIdentity: row.id)
+        do {
+            try store.remove(displayIdentity: row.id)
+            Log.correction.notice("removed the stored correction for \(row.display.name, privacy: .public)")
+        } catch {
+            Log.store.error("couldn’t remove the correction for \(row.display.name, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
         refresh()
     }
 
     /// Reset the system ColorSync tables, for the one state where D65 can't vouch for the display.
     func resetDisplayColours() {
+        Log.correction.notice("resetting ColorSync tables on every display; releasing \(self.holds.count) hold(s)")
         for entry in holds.values { try? entry.hold.release() }
         holds.removeAll()
         CGDisplayRestoreColorSyncSettings()
@@ -289,6 +360,10 @@ import SwiftUI
         // Await the worker so an already-running adjustment finishes before patch measurement.
         await monitorControl.setSuspended(true)
         guard calibrating == identity, !Task.isCancelled else { return }
+        if holds[identity] != nil {
+            let name = rows.first { $0.id == identity }?.display.name ?? identity
+            Log.correction.info("released the correction on \(name, privacy: .public) for calibration")
+        }
         try? holds[identity]?.hold.release()
         holds[identity] = nil
         refresh()
@@ -309,6 +384,10 @@ import SwiftUI
             try store.save(StoredCorrection(record: record, gains: gains))
             holds[record.display.identity]?.hold.keep()
             userPaused.remove(record.display.identity)
+            Log.correction.notice("""
+                kept correction for \(record.display.name, privacy: .public) from session \(record.id.uuidString, privacy: .public): \
+                gains \(Self.describe(gains), privacy: .public)
+                """)
         } catch { setError("Couldn’t save the correction: \(error)", for: record.display.identity) }
         finishCalibration()
     }
@@ -334,16 +413,29 @@ import SwiftUI
         pollMonitorSettings()
     }
 
-    func releaseAll() {
-        for entry in holds.values { try? entry.hold.release() }
+    /// Returns how many displays could not be restored.
+    @discardableResult func releaseAll() -> Int {
+        var failures = 0
+        for (identity, entry) in holds {
+            do { try entry.hold.release() } catch {
+                failures += 1
+                let name = rows.first { $0.id == identity }?.display.name ?? identity
+                Log.correction.error("couldn’t restore \(name, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
         holds.removeAll()
+        return failures
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             loginItemError = nil
-        } catch { loginItemError = "macOS refused: \(error.localizedDescription)" }
+        } catch {
+            loginItemError = "macOS refused: \(error.localizedDescription)"
+            Log.lifecycle.error("launch at login \(enabled ? "register" : "unregister", privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        }
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        Log.lifecycle.notice("launch at login is \(self.launchAtLogin ? "on" : "off", privacy: .public) (status \(SMAppService.mainApp.status.rawValue))")
     }
 }

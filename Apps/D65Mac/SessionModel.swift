@@ -82,6 +82,7 @@ import SwiftUI
             _ = try ObserverTransform.primaryMatrix(spectra, observer: .cie1931TwoDegree)
             try agent.spectraStore.save(spectra, for: display.identity)
             spectraError = nil
+            Log.store.notice("imported primary spectra for \(display.name, privacy: .public)")
         } catch let error as PrimarySpectra.ImportError {
             spectraError = error.description
         } catch is ObserverTransform.TransformError {
@@ -89,6 +90,7 @@ import SwiftUI
         } catch {
             spectraError = "Couldn’t read \(url.lastPathComponent): \(error.localizedDescription)"
         }
+        if let spectraError { Log.store.error("primary spectra import failed: \(spectraError, privacy: .public)") }
         objectWillChange.send()
     }
 
@@ -129,8 +131,10 @@ import SwiftUI
                 service.onEvent = { [weak self] in self?.handle($0) }
                 service.start()
                 self.service = service
+                Log.session.info("calibration service starting (revision \(revision, privacy: .public))")
             } catch {
                 notice = "D65 can’t listen on the local network: \(error.localizedDescription)"
+                Log.network.error("couldn’t create the listener: \(String(describing: error), privacy: .public)")
                 return
             }
         }
@@ -147,6 +151,11 @@ import SwiftUI
         patchIndex = 0; passes = []; verifyingPass = nil; record = nil; summary = nil; saveError = nil
         phase = CalibrationPatch.sequence[0].name
         step = .measure
+        let configuration = targetConfiguration
+        Log.session.notice("""
+            session starting on \(display.name, privacy: .public): \(configuration.mode.rawValue, privacy: .public), \
+            \(configuration.metric.label, privacy: .public), viewer \(self.viewer.rawValue, privacy: .public)
+            """)
         calibrationStart = Task {
             await agent.prepareForCalibration(identity: display.identity)
             guard !Task.isCancelled, step == .measure else { return }
@@ -160,6 +169,7 @@ import SwiftUI
         case .connect: step = .prepare
         case .place: service?.endPlacement(announceCancellation: true); step = .prepare
         case .measure:
+            Log.session.notice("session cancelled from the window")
             if let calibrationStart {
                 calibrationStart.cancel()
                 self.calibrationStart = nil
@@ -193,6 +203,7 @@ import SwiftUI
         calibrationStart = nil
         let service = self.service
         self.service = nil
+        if service != nil { Log.session.info("calibration service stopping") }
         comparing = false
         step = .prepare; probe = nil; record = nil; summary = nil; notice = nil
         await service?.stop()
@@ -217,6 +228,7 @@ import SwiftUI
     // MARK: Events
 
     private func handle(_ event: SessionEvent) {
+        log(event)
         switch event {
         case .listening:
             break
@@ -263,6 +275,57 @@ import SwiftUI
             agent.finishCalibration()
             notice = text
             step = probe == nil ? .connect : .prepare
+        }
+    }
+}
+
+extension SessionModel {
+    /// One log line per session event, at the level its consequence deserves.
+    private func log(_ event: SessionEvent) {
+        switch event {
+        case .listening:
+            Log.network.notice("listening on port 50515, advertising _d65._tcp")
+        case .listenerFailed(let text):
+            Log.network.error("listener failed: \(text, privacy: .public)")
+        case .probeConnected(let identity):
+            Log.network.notice("probe connected: \(identity.model, privacy: .public), build \(identity.build, privacy: .public)")
+        case .probeDisconnected:
+            Log.network.notice("probe disconnected")
+        case .probeRejected(let text):
+            Log.network.notice("probe refused: \(text, privacy: .public)")
+        case .placement(let reading):
+            Log.session.debug("placement \(reading.state.rawValue, privacy: .public)")
+        case .startRequested:
+            Log.session.info("start requested on the patch window")
+        case .cancelRequested:
+            Log.session.info("cancel requested on the patch window")
+        case .progress(let progress):
+            switch progress {
+            case .patch(let index, let total, let patch):
+                Log.session.debug("patch \(index + 1)/\(total): \(patch.name, privacy: .public)")
+            case .applying(let pass, let gains):
+                Log.session.info("applying pass \(pass): R \(gains.r) G \(gains.g) B \(gains.b)")
+            case .verifying(let pass):
+                Log.session.debug("verifying pass \(pass)")
+            case .passMeasured(let pass):
+                Log.session.info("pass \(pass.number) measured: ΔE \(pass.deltaE, format: .fixed(precision: 3))")
+            case .restoring:
+                Log.session.info("restoring the display")
+            }
+        case .finished(let record, let saveError):
+            let baseline = record.baselineDeltaE.map { String(format: "%.3f", $0) } ?? "–"
+            let best = record.bestDeltaE.map { String(format: "%.3f", $0) } ?? "–"
+            Log.session.notice("""
+                session \(record.id.uuidString, privacy: .public) on \(record.display.name, privacy: .public) \
+                \(record.outcome.rawValue, privacy: .public): ΔE \(baseline, privacy: .public) → \(best, privacy: .public), \
+                \(record.passes.count) pass(es); \(record.terminationReason, privacy: .public)
+                """)
+            for failure in record.restorationErrors {
+                Log.session.fault("display not restored after session: \(failure, privacy: .public)")
+            }
+            if let saveError { Log.store.error("couldn’t save the session record: \(saveError, privacy: .public)") }
+        case .runFailed(let text):
+            Log.session.error("run failed to start: \(text, privacy: .public)")
         }
     }
 }

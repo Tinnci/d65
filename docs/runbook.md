@@ -143,3 +143,16 @@ mode, contrast or preset as stale; stale corrections can remain applied. HDR/chr
 fully characterized by that key. The CLI hardware run did not validate GUI Keep/Discard, relaunch
 reapplication, mode switching, or the optical effect of the progress overlay. Those remain separate
 hardware checks.
+
+## Logs
+
+The Mac app writes to the unified log under the subsystem `dev.tinnci.d65`, with one category per
+area: `lifecycle`, `display`, `correction`, `ddc`, `session`, `network` and `store`. Launches,
+quits (with the reason: the menu, a quit event and its sender, log out, SIGTERM), corrections,
+stale verdicts, DDC writes and session results are kept on disk; per-patch and placement detail is
+`debug` and only visible while streaming.
+
+```sh
+log stream --predicate 'subsystem == "dev.tinnci.d65"' --level info
+log show --last 1d --predicate 'subsystem == "dev.tinnci.d65"'
+```
