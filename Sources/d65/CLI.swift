@@ -296,10 +296,25 @@ struct D65CLI {
             fail("unknown display subcommand: \(subcommand)")
         }
         #elseif os(Windows)
-        guard arguments.first == "list" else { fail("on Windows, display supports list") }
         WindowsHost.prepare()
         let displays = WindowsDisplayDirectory.online()
         let preferred = WindowsDisplayDirectory.preferred(in: displays)?.id
+        if arguments.first == "probe" {
+            let options = parseOptions(arguments)
+            guard let target = options["display-id"] != nil
+                    ? displays.first(where: { $0.id == selectedDisplayID(options) })
+                    : displays.first(where: { $0.id == preferred }) else { fail("no such display; see display list") }
+            do {
+                let snapshot = try WindowsGammaBackend(display: target).probe()
+                print("display \(target.id) (\(target.name))  ramp entries=\(snapshot.count)")
+                for (name, table) in [("R", snapshot.red), ("G", snapshot.green), ("B", snapshot.blue)] {
+                    print("  \(name): " + [0, 64, 128, 192, 255].map { String(format: "%.4f", table[$0]) }.joined(separator: "  "))
+                }
+                print("  (positions: 0, 25%, 50%, 75%, 100%)")
+            } catch { fail("probe failed: \(error)") }
+            return
+        }
+        guard arguments.first == "list" else { fail("on Windows, display supports list and probe") }
         for display in displays {
             let notes = [display.isPrimary ? "primary" : nil, display.isInternal ? "built-in" : nil,
                          display.id == preferred ? "default target" : nil].compactMap { $0 }

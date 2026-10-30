@@ -51,8 +51,21 @@ jobs:
       - name: Unit tests
         run: swift test
 
-      - name: List displays (none on a hosted runner; must not crash)
-        run: swift run d65 display list
+      # The hosted runner has one virtual display, which is enough to exercise the Win32 paths.
+      - name: List displays and read a gamma ramp
+        run: |
+          swift run d65 display list
+          swift run d65 display probe
+
+      - name: Serve smoke test (listener starts and accepts a connection)
+        run: |
+          $server = Start-Process -FilePath .build\debug\d65.exe -ArgumentList serve -PassThru -NoNewWindow `
+            -RedirectStandardOutput serve.log -RedirectStandardError serve.err
+          Start-Sleep -Seconds 5
+          $accepted = (Test-NetConnection -ComputerName 127.0.0.1 -Port 50515).TcpTestSucceeded
+          Stop-Process -Id $server.Id
+          Get-Content serve.log, serve.err
+          if (-not $accepted) { exit 1 }
 
   apps:
     name: Mac app and iPhone probe
