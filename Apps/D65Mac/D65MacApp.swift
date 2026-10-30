@@ -90,6 +90,10 @@ struct D65MacApp: App {
         terminationSignal = source
     }
 
+    /// D65 lives in the menu bar. SwiftUI answers yes here because of the Calibrate `Window` scene, so
+    /// closing the menu panel or the session window used to quit the app and drop every correction.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
     /// Restore every display before exiting: cancel a running session (the engine restores), then release holds.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let agent = self.agent ?? Showcase.models?.0
