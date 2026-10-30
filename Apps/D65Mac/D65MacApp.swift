@@ -123,7 +123,7 @@ struct D65MacApp: App {
         // Anything else arrives as a quit Apple event: logout, restart, shutdown, or another app.
         guard let event = NSAppleEventManager.shared().currentAppleEvent,
               event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEQuitApplication) else {
-            return "terminate without a quit event"
+            return "terminate from \(inputEvent()); called by \(caller())"
         }
         let why = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason))?.enumCodeValue
         let kind = switch why {
@@ -135,6 +135,36 @@ struct D65MacApp: App {
         guard let pid = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value, pid > 0 else { return kind }
         let sender = NSRunningApplication(processIdentifier: pid)
         return "\(kind) from \(sender?.localizedName ?? sender?.bundleIdentifier ?? "pid \(pid)")"
+    }
+
+    /// The input event AppKit was handling when terminate was called: a key equivalent or a click.
+    private static func inputEvent() -> String {
+        guard let event = NSApp.currentEvent else { return "no input event" }
+        let window = event.window.map { String(describing: type(of: $0)) } ?? "no window"
+        switch event.type {
+        case .keyDown, .keyUp:
+            var keys = ""
+            if event.modifierFlags.contains(.control) { keys += "⌃" }
+            if event.modifierFlags.contains(.option) { keys += "⌥" }
+            if event.modifierFlags.contains(.shift) { keys += "⇧" }
+            if event.modifierFlags.contains(.command) { keys += "⌘" }
+            return "key \(keys)\(event.charactersIgnoringModifiers?.uppercased() ?? "?") in \(window)"
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp:
+            return "click in \(window)"
+        default:
+            return "event type \(event.type.rawValue) in \(window)"
+        }
+    }
+
+    /// The first frames above AppKit's terminate, so an unexpected caller names itself.
+    private static func caller() -> String {
+        let frames = Thread.callStackSymbols.dropFirst(3).prefix(12).map { line in
+            // "12  AppKit  0x0001… -[NSApplication terminate:] + 40" → "AppKit -[NSApplication terminate:]"
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count >= 4 else { return line }
+            return "\(parts[1]) \(parts[3...].prefix { $0 != "+" }.joined(separator: " "))"
+        }
+        return frames.joined(separator: " ← ")
     }
 }
 
