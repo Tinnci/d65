@@ -2,7 +2,7 @@ import D65Calibration
 import D65Core
 import D65Link
 import XCTest
-@testable import D65MacRuntime
+@testable import D65Host
 
 final class ProbeCompletionTests: XCTestCase {
     private func record(_ outcome: CalibrationOutcome) -> ExperimentRecord {

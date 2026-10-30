@@ -26,7 +26,7 @@ public struct DDCTiming: Sendable {
         self.sleep = sleep; self.now = now; self.minimumInterval = minimumInterval
     }
 
-    public static let system = DDCTiming(sleep: { usleep(UInt32(max(0, $0) * 1_000_000)) },
+    public static let system = DDCTiming(sleep: { Thread.sleep(forTimeInterval: max(0, $0)) },
                                          now: { ProcessInfo.processInfo.systemUptime })
 }
 

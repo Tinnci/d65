@@ -1,10 +1,17 @@
-#if os(macOS)
 import D65Calibration
 import D65Core
 import D65Measurement
-import Network
 import XCTest
-@testable import D65MacRuntime
+@testable import D65Host
+
+/// A connection that records what was sent and never touches the network.
+@MainActor private final class RecordingConnection: ProbeConnection {
+    var sent: [Data] = []
+    var cancelled = false
+    func start(onData: @escaping (Data) -> Void, onClose: @escaping () -> Void) {}
+    func send(_ data: Data, completion: (() -> Void)?) { sent.append(data); completion?() }
+    func cancel() { cancelled = true }
+}
 
 @MainActor final class SessionIsolationTests: XCTestCase {
     func testSecondConnectionCannotReplaceOwnerOrReleaseItsLease() async {
@@ -19,7 +26,7 @@ import XCTest
         XCTAssertTrue(lease.claim(ObjectIdentifier(second)))
     }
     func testProbeDropsSamplesFromOtherSessionsAndPreviousPatches() async throws {
-        let connection = NWConnection(host: "127.0.0.1", port: 9, using: .tcp)
+        let connection = RecordingConnection()
         let probe = NetworkProbe(identity: .init(model: "test", build: "test"), connection: connection)
         let first = MeasurementRequest(sessionID: UUID(), phase: "white", startedAt: Date(), settlingSeconds: 0, samplingSeconds: 2)
         let second = MeasurementRequest(sessionID: first.sessionID, phase: "white", startedAt: Date(), settlingSeconds: 0, samplingSeconds: 2)
@@ -35,7 +42,6 @@ import XCTest
         XCTAssertEqual(kept[0].patchID, second.patchID)
         probe.connected = false
         XCTAssertThrowsError(try probe.start(first))
-        connection.cancel()
+        XCTAssertFalse(connection.sent.isEmpty, "requests and ends are sent to the phone")
     }
 }
-#endif

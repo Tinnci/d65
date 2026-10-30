@@ -27,6 +27,33 @@ jobs:
       - name: Unit tests
         run: swift test
 
+  windows:
+    name: Windows host
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Swift
+        uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.1.2-release
+          tag: 6.1.2-RELEASE
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Self-test
+        run: swift run d65 selftest
+
+      - name: Unit tests
+        run: swift test
+
+      - name: List displays (none on a hosted runner; must not crash)
+        run: swift run d65 display list
+
   apps:
     name: Mac app and iPhone probe
     runs-on: macos-15
