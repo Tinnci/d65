@@ -1,5 +1,3 @@
 # Preserve the official CIE bytes on every platform; published checksums include line endings.
 Sources/D65Core/Resources/CIE/*.csv -text whitespace=cr-at-eol
 Sources/D65Core/Resources/CIE/*.json -text whitespace=cr-at-eol
-# The CIE tables are checksum-pinned: keep their bytes exact on every platform (no CRLF conversion).
-Sources/D65Core/Resources/CIE/** -text
