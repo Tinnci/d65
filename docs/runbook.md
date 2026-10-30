@@ -100,8 +100,7 @@ swift build
 - **HDR.** Windows ignores gamma ramps while HDR is on. Calibrate in SDR.
 - **Restoration.** Windows keeps a ramp after the process exits. The engine restores at the end of
   every run, and `serve` restores on Ctrl-C or when the console closes. If the process is killed
-  outright, restore with Display settings → Advanced display → Display adapter properties → Color
-  Management → Advanced → Reset, or by reconnecting the monitor.
+  outright, `d65 display reset --display-id <id>` writes a neutral ramp.
 - **DDC/CI** goes through Windows' own monitor configuration API, so `ddc probe` and
   `ddc capabilities` need no driver.
 

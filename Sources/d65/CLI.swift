@@ -103,8 +103,8 @@ struct D65CLI {
               d65 display apply --r <g> --g <g> --b <g> [--alpha <a>]
                   Scale the selected display's gamma table by the given gains.
 
-              d65 display reset
-                  Restore the system ColorSync display settings.
+              d65 display reset [--display-id <id>]
+                  macOS: restore the system ColorSync display settings. Windows: write a neutral gamma ramp.
 
               d65 serve [--port <p>] [--display-id <id>] [--apply] [--metric ciede2000|cam16-ucs]
                         [--viewer cie2015-2|cie2015-10 --spectra <file.csv>]
@@ -300,6 +300,19 @@ struct D65CLI {
         WindowsHost.prepare()
         let displays = WindowsDisplayDirectory.online()
         let preferred = WindowsDisplayDirectory.preferred(in: displays)?.id
+        if arguments.first == "reset" {
+            let options = parseOptions(arguments)
+            guard let target = options["display-id"] != nil
+                    ? displays.first(where: { $0.id == selectedDisplayID(options) })
+                    : displays.first(where: { $0.id == preferred }) else { fail("no such display; see display list") }
+            let neutral = (0..<256).map { Double($0) / 255 }
+            do {
+                try WindowsGammaBackend(display: target).restore(
+                    DisplayTransferSnapshot(displayID: target.id, red: neutral, green: neutral, blue: neutral))
+                print("display \(target.id) (\(target.name)): neutral gamma ramp written")
+            } catch { fail("reset failed: \(error)") }
+            return
+        }
         if arguments.first == "probe" {
             let options = parseOptions(arguments)
             guard let target = options["display-id"] != nil
@@ -315,7 +328,7 @@ struct D65CLI {
             } catch { fail("probe failed: \(error)") }
             return
         }
-        guard arguments.first == "list" else { fail("on Windows, display supports list and probe") }
+        guard arguments.first == "list" else { fail("on Windows, display supports list, probe and reset") }
         for display in displays {
             let notes = [display.isPrimary ? "primary" : nil, display.isInternal ? "built-in" : nil,
                          display.id == preferred ? "default target" : nil].compactMap { $0 }

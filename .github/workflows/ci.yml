@@ -52,9 +52,11 @@ jobs:
         run: swift test
 
       # The hosted runner has one virtual display, which is enough to exercise the Win32 paths.
-      - name: List displays and read a gamma ramp
+      - name: List displays, read a gamma ramp, write a neutral one
         run: |
           swift run d65 display list
+          swift run d65 display probe
+          swift run d65 display reset
           swift run d65 display probe
 
       - name: Serve smoke test (listener starts and accepts a connection)
