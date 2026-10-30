@@ -33,7 +33,7 @@ public enum WindowsHost {
         while true {
             // QS_ALLINPUT; wake at least every 10 ms to service the main queue.
             MsgWaitForMultipleObjects(0, nil, false, 10, DWORD(0x04FF))
-            while PeekMessageW(&message, nil, 0, 0, UINT(PM_REMOVE)).boolValue {
+            while PeekMessageW(&message, nil, 0, 0, UINT(PM_REMOVE)) {
                 TranslateMessage(&message)
                 DispatchMessageW(&message)
             }

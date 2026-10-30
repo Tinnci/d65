@@ -59,7 +59,7 @@ public enum WindowsDisplayDirectory {
         mode.dmSize = WORD(MemoryLayout<DEVMODEW>.size)
         // ENUM_CURRENT_SETTINGS is (DWORD)-1.
         let ok = deviceName.withWide { EnumDisplaySettingsW($0, DWORD.max, &mode) }
-        guard ok.boolValue else { return nil }
+        guard ok else { return nil }
         return (Int(mode.dmPelsWidth), Int(mode.dmPelsHeight), Double(mode.dmDisplayFrequency))
     }
 
@@ -118,7 +118,7 @@ public enum WindowsDisplayDirectory {
             let ok = withUnsafeMutablePointer(to: &info) {
                 $0.withMemoryRebound(to: MONITORINFO.self, capacity: 1) { GetMonitorInfoW(handle, $0) }
             }
-            if ok.boolValue {
+            if ok {
                 let list = Unmanaged<MonitorList>.fromOpaque(UnsafeRawPointer(bitPattern: Int(context))!).takeUnretainedValue()
                 list.monitors.append(Monitor(handle: handle, deviceName: string(fromWideTuple: info.szDevice),
                                              rect: info.rcMonitor, isPrimary: info.dwFlags & DWORD(MONITORINFOF_PRIMARY) != 0))

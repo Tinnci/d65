@@ -29,7 +29,7 @@ public struct WindowsGammaBackend: TransferTableBackend {
         var ramp = [UInt16](repeating: 0, count: 768)
         try withDeviceContext { dc in
             let ok = ramp.withUnsafeMutableBytes { GetDeviceGammaRamp(dc, $0.baseAddress) }
-            guard ok.boolValue else { throw WindowsGammaError.readFailed(display.deviceName) }
+            guard ok else { throw WindowsGammaError.readFailed(display.deviceName) }
         }
         let channel = { (index: Int) in ramp[(index * 256)..<((index + 1) * 256)].map { Double($0) / 65535 } }
         return DisplayTransferSnapshot(displayID: display.id, red: channel(0), green: channel(1), blue: channel(2))
@@ -50,7 +50,7 @@ public struct WindowsGammaBackend: TransferTableBackend {
         }
         try withDeviceContext { dc in
             let ok = ramp.withUnsafeMutableBytes { SetDeviceGammaRamp(dc, $0.baseAddress) }
-            guard ok.boolValue else { throw WindowsGammaError.writeFailed(display.deviceName) }
+            guard ok else { throw WindowsGammaError.writeFailed(display.deviceName) }
         }
     }
 
