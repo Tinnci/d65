@@ -27,6 +27,48 @@ jobs:
       - name: Unit tests
         run: swift test
 
+  windows:
+    name: Windows host
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Swift
+        uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.1.2-release
+          tag: 6.1.2-RELEASE
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Self-test
+        run: swift run d65 selftest
+
+      - name: Unit tests
+        run: swift test
+
+      # The hosted runner has one virtual display, which is enough to exercise the Win32 paths.
+      - name: List displays, read a gamma ramp, write a neutral one
+        run: |
+          swift run d65 display list
+          swift run d65 display probe
+          swift run d65 display reset
+          swift run d65 display probe
+
+      - name: Serve smoke test (listener starts and accepts a connection)
+        run: |
+          $server = Start-Process -FilePath .build\debug\d65.exe -ArgumentList serve -PassThru -NoNewWindow `
+            -RedirectStandardOutput serve.log -RedirectStandardError serve.err
+          Start-Sleep -Seconds 5
+          $accepted = (Test-NetConnection -ComputerName 127.0.0.1 -Port 50515).TcpTestSucceeded
+          Stop-Process -Id $server.Id
+          Get-Content serve.log, serve.err
+          if (-not $accepted) { exit 1 }
+
   apps:
     name: Mac app and iPhone probe
     runs-on: macos-15

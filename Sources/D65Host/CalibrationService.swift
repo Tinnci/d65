@@ -1,19 +1,16 @@
-#if os(macOS)
-import AppKit
 import D65Calibration
 import D65Core
 import D65Link
 import D65Measurement
 import Foundation
-import Network
 
 @MainActor final class NetworkProbe: CalibrationProbe {
     let identity: ProbeIdentity
-    private let connection: NWConnection
+    private let connection: any ProbeConnection
     private var request: MeasurementRequest?
     private var samples: [TaggedMeasurement] = []
     var connected = true
-    init(identity: ProbeIdentity, connection: NWConnection) { self.identity = identity; self.connection = connection }
+    init(identity: ProbeIdentity, connection: any ProbeConnection) { self.identity = identity; self.connection = connection }
     func start(_ request: MeasurementRequest) throws {
         guard connected else { throw CalibrationError.disconnected }
         self.request = request; samples.removeAll()
@@ -40,12 +37,12 @@ import Network
     func sendFinal(_ message: CalibrationMessage) async {
         guard connected, let data = try? MessageFraming.encode(message) else { return }
         await withCheckedContinuation { continuation in
-            connection.send(content: data, completion: .contentProcessed { _ in continuation.resume() })
+            connection.send(data) { continuation.resume() }
         }
     }
     func send(_ message: CalibrationMessage) {
         guard let data = try? MessageFraming.encode(message) else { return }
-        connection.send(content: data, completion: .contentProcessed { _ in })
+        connection.send(data, completion: nil)
     }
 }
 
@@ -69,16 +66,17 @@ public enum SessionEvent {
 /// Network host for one probe at a time. The connection outlives a session so a retry needs no
 /// trip back to the phone; the engine only runs when the client asks, after placement.
 @MainActor public final class CalibrationService {
-    private let listener: NWListener
+    private let listener: any ProbeListener
+    private let platform: HostPlatform
     private let recordDirectory: URL
     private let revision: String
     private let engine = CalibrationEngine()
-    private var connection: NWConnection?
+    private var connection: (any ProbeConnection)?
     private var lease = ProbeConnectionLease()
     private var buffer = Data()
     private var probe: NetworkProbe?
     private var task: Task<Void, Never>?
-    private var presenter: ScreenPatchPresenter?
+    private var presenter: (any HostOverlay)?
     private var placementID: UUID?
     private var placement = PlacementMonitor()
     private var alignment = DepthAlignmentFeedback()
@@ -89,34 +87,15 @@ public enum SessionEvent {
     public var isRunning: Bool { task != nil }
     public var isPlacing: Bool { placementID != nil }
 
-    public init(port: UInt16 = 50515, recordDirectory: URL, softwareRevision: String) throws {
-        guard let port = NWEndpoint.Port(rawValue: port) else { throw CalibrationError.invalidConfiguration }
-        let parameters = NWParameters.tcp
-        parameters.includePeerToPeer = true
-        listener = try NWListener(using: parameters, on: port)
-        listener.service = NWListener.Service(name: "D65", type: Link.serviceType)
+    public init(listener: any ProbeListener, platform: HostPlatform, recordDirectory: URL, softwareRevision: String) {
+        self.listener = listener; self.platform = platform
         self.recordDirectory = recordDirectory; revision = softwareRevision
     }
 
     public func start() {
-        listener.newConnectionHandler = { [weak self] connection in
-            Task { @MainActor in self?.accept(connection) }
-        }
-        listener.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor in
-                switch state {
-                case .ready: self?.onEvent?(.listening)
-                case .failed(let error):
-                    let text: String
-                    if case .posix(let code) = error, code == .EADDRINUSE {
-                        text = "Port \(self?.listener.port?.rawValue ?? 50515) is in use, possibly by d65 serve. Quit it and try again."
-                    } else { text = "D65 can’t listen on the local network: \(error)" }
-                    self?.onEvent?(.listenerFailed(text))
-                default: break
-                }
-            }
-        }
-        listener.start(queue: .main)
+        listener.start(onReady: { [weak self] in self?.onEvent?(.listening) },
+                       onFailure: { [weak self] text in self?.onEvent?(.listenerFailed(text)) },
+                       onConnection: { [weak self] connection in self?.accept(connection) })
     }
 
     /// Cancels any run, waits for the engine's restoration, then releases the probe.
@@ -195,8 +174,8 @@ public enum SessionEvent {
             onEvent?(.runFailed(probe == nil ? "No probe is connected." : "A session is already running.")); return
         }
         endPlacement(closeOverlay: false)
-        let selected: SelectedDisplay
-        do { selected = try SelectedDisplay(displayID: displayID) }
+        let selected: any CalibrationDisplay
+        do { selected = try platform.makeDisplay(displayID) }
         catch { presenter?.close(); onEvent?(.runFailed("The display is no longer available.")); return }
         guard let presenter = presenter(for: displayID) else { onEvent?(.runFailed("The display is no longer available.")); return }
         presenter.showsProgress = showsProgressOnPatches
@@ -238,11 +217,10 @@ public enum SessionEvent {
 
     public func cancelRun() { task?.cancel() }
 
-    private func presenter(for displayID: UInt32) -> ScreenPatchPresenter? {
+    private func presenter(for displayID: UInt32) -> (any HostOverlay)? {
         if let presenter, presenter.displayID == displayID { return presenter }
         presenter?.close()
-        guard let screen = NSScreen.forDisplay(displayID) else { return nil }
-        let created = ScreenPatchPresenter(screen: screen, displayID: displayID)
+        guard let created = platform.makeOverlay(displayID) else { return nil }
         created.onCancel = { [weak self] in
             guard let self else { return }
             if self.task != nil { self.cancelRun() } else { self.endPlacement(announceCancellation: true) }
@@ -255,23 +233,19 @@ public enum SessionEvent {
 
     // MARK: Connection
 
-    private func accept(_ candidate: NWConnection) {
+    private func accept(_ candidate: any ProbeConnection) {
         guard lease.claim(ObjectIdentifier(candidate)) else {
             refuse(candidate, code: .busy, message: "This Mac is already measuring with another iPhone.")
             return
         }
         connection = candidate; buffer.removeAll()
-        candidate.stateUpdateHandler = { [weak self, weak candidate] state in
-            Task { @MainActor in
-                guard let self, let candidate, self.connection === candidate else { return }
-                switch state {
-                case .failed, .cancelled: self.disconnect(candidate)
-                default: break
-                }
-            }
-        }
-        candidate.start(queue: .main)
-        receive(candidate)
+        candidate.start(onData: { [weak self, weak candidate] data in
+            guard let self, let candidate else { return }
+            self.receive(data, from: candidate)
+        }, onClose: { [weak self, weak candidate] in
+            guard let self, let candidate else { return }
+            self.disconnect(candidate)
+        })
         // Do not let a silent TCP connection reserve the sensor slot forever.
         Task { @MainActor [weak self, weak candidate] in
             try? await Task.sleep(for: .seconds(10))
@@ -281,45 +255,27 @@ public enum SessionEvent {
     }
 
     /// Tell the phone why before closing, so it never just sees a dropped connection.
-    private func refuse(_ candidate: NWConnection, code: LinkFailure, message: String) {
+    private func refuse(_ candidate: any ProbeConnection, code: LinkFailure, message: String) {
         onEvent?(.probeRejected(message))
-        let send = { (connection: NWConnection) in
-            guard let data = try? MessageFraming.encode(.failure(code: code.rawValue, message: message)) else { connection.cancel(); return }
-            connection.send(content: data, completion: .contentProcessed { _ in connection.cancel() })
-        }
-        if candidate.state == .ready { send(candidate); return }
-        candidate.stateUpdateHandler = { state in
-            switch state {
-            case .ready: send(candidate)
-            case .failed, .cancelled: break
-            default: break
-            }
-        }
-        candidate.start(queue: .main)
+        candidate.start(onData: { _ in }, onClose: {})
+        if let data = try? MessageFraming.encode(.failure(code: code.rawValue, message: message)) {
+            candidate.send(data) { candidate.cancel() }
+        } else { candidate.cancel() }
         Task { try? await Task.sleep(for: .seconds(3)); candidate.cancel() }
     }
 
-    private func receive(_ candidate: NWConnection) {
-        candidate.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, complete, error in
-            Task { @MainActor in
-                guard let self, self.connection === candidate else { return }
-                if let data {
-                    self.buffer.append(data)
-                    do {
-                        let messages = try MessageFraming.drain(&self.buffer)
-                        for message in messages { self.handle(message, from: candidate) }
-                    } catch {
-                        self.disconnect(candidate)
-                        return
-                    }
-                }
-                if complete || error != nil { self.disconnect(candidate) }
-                else { self.receive(candidate) }
-            }
+    private func receive(_ data: Data, from candidate: any ProbeConnection) {
+        guard connection === candidate else { return }
+        buffer.append(data)
+        do {
+            let messages = try MessageFraming.drain(&buffer)
+            for message in messages { handle(message, from: candidate) }
+        } catch {
+            disconnect(candidate)
         }
     }
 
-    private func disconnect(_ candidate: NWConnection) {
+    private func disconnect(_ candidate: any ProbeConnection) {
         guard connection === candidate else { return }
         let hadProbe = probe != nil
         endPlacement()
@@ -333,12 +289,12 @@ public enum SessionEvent {
     }
 
     /// The lease is held until restoration completes, even when the TCP connection has gone.
-    private func releaseProbe(_ candidate: NWConnection) {
+    private func releaseProbe(_ candidate: any ProbeConnection) {
         probe = nil; probeIdentity = nil
         lease.release(ObjectIdentifier(candidate))
     }
 
-    private func handle(_ message: CalibrationMessage, from candidate: NWConnection) {
+    private func handle(_ message: CalibrationMessage, from candidate: any ProbeConnection) {
         switch message {
         case .helloV2(let model, let build, let version):
             guard probe == nil else { return }
@@ -346,9 +302,7 @@ public enum SessionEvent {
                 let text = "D65 Probe speaks protocol \(version); this Mac needs \(Link.protocolVersion). Rebuild the probe."
                 onEvent?(.probeRejected(text))
                 if let data = try? MessageFraming.encode(.failure(code: LinkFailure.incompatible.rawValue, message: text)) {
-                    candidate.send(content: data, completion: .contentProcessed { [weak self] _ in
-                        Task { @MainActor in self?.disconnect(candidate) }
-                    })
+                    candidate.send(data) { [weak self] in self?.disconnect(candidate) }
                 } else { disconnect(candidate) }
                 return
             }
@@ -374,4 +328,3 @@ public enum SessionEvent {
         }
     }
 }
-#endif

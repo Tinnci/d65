@@ -1,9 +1,15 @@
+#if os(macOS)
 import AppKit
+import D65MacRuntime
+#elseif os(Windows)
+import D65WindowsRuntime
+import WinSDK
+#endif
+import D65Calibration
 import D65Core
 import D65Display
+import D65Host
 import D65Link
-import D65Calibration
-import D65MacRuntime
 import Foundation
 
 @main
@@ -89,26 +95,27 @@ struct D65CLI {
                   Apply the quality gate and print the verdict.
 
               d65 display list
-                  List display IDs for --display-id.
+                  List display IDs for --display-id. (macOS and Windows)
 
               d65 display probe [--display-id <id>]
-                  Read the current gamma table of the selected display (no changes).
+                  Read the current gamma table of the selected display (no changes). (macOS and Windows)
 
               d65 display apply --r <g> --g <g> --b <g> [--alpha <a>]
                   Scale the selected display's gamma table by the given gains.
 
-              d65 display reset
-                  Restore the system ColorSync display settings.
+              d65 display reset [--display-id <id>]
+                  macOS: restore the system ColorSync display settings. Windows: write a neutral gamma ramp.
 
               d65 serve [--port <p>] [--display-id <id>] [--apply] [--metric ciede2000|cam16-ucs]
                         [--viewer cie2015-2|cie2015-10 --spectra <file.csv>]
-                  Advertise _d65._tcp and solve gains from probe measurements.
+                  Advertise _d65._tcp and solve gains from probe measurements. (macOS and Windows)
 
               d65 ddc probe [--display-id <id>]
                   Read the guarded settings, gains, input, display mode and MCCS version, with timings.
+                  (macOS and Windows)
 
               d65 ddc capabilities [--display-id <id>]
-                  Read and parse the monitor's MCCS capabilities string.
+                  Read and parse the monitor's MCCS capabilities string. (macOS and Windows)
 
               d65 ddc gain --r <n> --g <n> --b <n>
                   Write RGB gain (VCP 0x16/0x18/0x1A) and verify the read-back.
@@ -126,7 +133,13 @@ struct D65CLI {
     }
 
     static func selectedDisplayID(_ options: [String: Double]) -> UInt32 {
-        guard let id = options["display-id"] else { return CGMainDisplayID() }
+        guard let id = options["display-id"] else {
+            #if os(macOS)
+            return CGMainDisplayID()
+            #else
+            return 0
+            #endif
+        }
         guard id.isFinite, id.rounded() == id, id >= 0, id <= Double(UInt32.max) else { fail("invalid display ID") }
         return UInt32(id)
     }
@@ -283,14 +296,57 @@ struct D65CLI {
         default:
             fail("unknown display subcommand: \(subcommand)")
         }
+        #elseif os(Windows)
+        WindowsHost.prepare()
+        let displays = WindowsDisplayDirectory.online()
+        let preferred = WindowsDisplayDirectory.preferred(in: displays)?.id
+        if arguments.first == "reset" {
+            let options = parseOptions(arguments)
+            guard let target = options["display-id"] != nil
+                    ? displays.first(where: { $0.id == selectedDisplayID(options) })
+                    : displays.first(where: { $0.id == preferred }) else { fail("no such display; see display list") }
+            let neutral = (0..<256).map { Double($0) / 255 }
+            do {
+                try WindowsGammaBackend(display: target).restore(
+                    DisplayTransferSnapshot(displayID: target.id, red: neutral, green: neutral, blue: neutral))
+                print("display \(target.id) (\(target.name)): neutral gamma ramp written")
+            } catch { fail("reset failed: \(error)") }
+            return
+        }
+        if arguments.first == "probe" {
+            let options = parseOptions(arguments)
+            guard let target = options["display-id"] != nil
+                    ? displays.first(where: { $0.id == selectedDisplayID(options) })
+                    : displays.first(where: { $0.id == preferred }) else { fail("no such display; see display list") }
+            do {
+                let snapshot = try WindowsGammaBackend(display: target).probe()
+                print("display \(target.id) (\(target.name))  ramp entries=\(snapshot.count)")
+                for (name, table) in [("R", snapshot.red), ("G", snapshot.green), ("B", snapshot.blue)] {
+                    print("  \(name): " + [0, 64, 128, 192, 255].map { String(format: "%.4f", table[$0]) }.joined(separator: "  "))
+                }
+                print("  (positions: 0, 25%, 50%, 75%, 100%)")
+            } catch { fail("probe failed: \(error)") }
+            return
+        }
+        guard arguments.first == "list" else { fail("on Windows, display supports list, probe and reset") }
+        for display in displays {
+            let notes = [display.isPrimary ? "primary" : nil, display.isInternal ? "built-in" : nil,
+                         display.id == preferred ? "default target" : nil].compactMap { $0 }
+            print("\(display.id)  \(display.name)  \(display.width)×\(display.height) @ \(Int(display.refreshRate)) Hz"
+                  + (notes.isEmpty ? "" : "  (" + notes.joined(separator: ", ") + ")"))
+        }
         #else
-        fail("display commands are macOS only")
+        fail("display commands need macOS or Windows")
         #endif
     }
 
     @MainActor static func runServe(_ arguments: [String]) {
-        #if os(macOS)
+        #if os(macOS) || os(Windows)
+        #if os(Windows)
+        setvbuf(stdout, nil, _IONBF, 0) // the Windows CRT has no line buffering
+        #else
         setvbuf(stdout, nil, _IOLBF, 0)
+        #endif
         let options = parseOptions(arguments)
         let requestedPort = options["port"] ?? 50515
         guard requestedPort.isFinite, requestedPort.rounded() == requestedPort,
@@ -301,8 +357,12 @@ struct D65CLI {
         let port = UInt16(requestedPort)
         let apply = arguments.contains("--apply")
 
+        #if os(macOS)
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
+        #else
+        WindowsHost.prepare()
+        #endif
 
         do {
             let flags: [(String, CalibrationMode)] = [("--apply", .calibrate), ("--ddc-test", .ddcTest),
@@ -335,20 +395,18 @@ struct D65CLI {
             print("white error: \(config.metric.definition)")
             let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent("local/experiments", isDirectory: true)
-            let revisionProcess = Process()
-            revisionProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            revisionProcess.arguments = ["describe", "--always", "--dirty"]
-            let revisionOutput = Pipe()
-            revisionProcess.standardOutput = revisionOutput
-            revisionProcess.standardError = FileHandle.nullDevice
-            try revisionProcess.run()
-            revisionProcess.waitUntilExit()
-            let revision = String(data: revisionOutput.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
-            let server = try CalibrationService(port: port, recordDirectory: directory,
-                softwareRevision: revision.isEmpty ? "unknown" : revision)
+            let revision = gitRevision()
+            #if os(macOS)
+            let server = try CalibrationService(port: port, recordDirectory: directory, softwareRevision: revision)
             let displayID = options["display-id"].map { UInt32($0) }
                 ?? DisplayDirectory.preferred(in: DisplayDirectory.online())?.id ?? CGMainDisplayID()
+            #else
+            let server = CalibrationService.windows(port: port, recordDirectory: directory, softwareRevision: revision)
+            guard let displayID = options["display-id"].map({ UInt32($0) })
+                ?? WindowsDisplayDirectory.preferred(in: WindowsDisplayDirectory.online())?.id else {
+                fail("no active display found")
+            }
+            #endif
             var lastPlacement: PlacementState?
             var lastAlignment: String?
             server.onEvent = { event in
@@ -380,6 +438,10 @@ struct D65CLI {
             server.start()
             print("apply to display: \(apply ? "yes" : "no")")
             // Handle Ctrl-C through the same async restoration path as cancellation.
+            #if os(Windows)
+            WindowsHost.onInterrupt { Task { @MainActor in await server.stop(); exit(0) } }
+            WindowsHost.runMessageLoop()
+            #else
             let terminationSignals = [SIGINT, SIGTERM].map { number -> DispatchSourceSignal in
                 signal(number, SIG_IGN)
                 let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
@@ -389,11 +451,12 @@ struct D65CLI {
             }
             defer { terminationSignals.forEach { $0.cancel() } }
             RunLoop.main.run()
+            #endif
         } catch {
             fail("serve failed: \(error)")
         }
         #else
-        fail("serve is macOS only")
+        fail("serve needs macOS or Windows")
         #endif
     }
 
@@ -497,9 +560,61 @@ struct D65CLI {
         default:
             fail("unknown ddc subcommand: \(subcommand)")
         }
+        #elseif os(Windows)
+        let selection = parseOptions(arguments)
+        let displays = WindowsDisplayDirectory.online()
+        guard let target = selection["display-id"] != nil
+                ? displays.first(where: { $0.id == selectedDisplayID(selection) })
+                : WindowsDisplayDirectory.preferred(in: displays) else { fail("no such display; see display list") }
+        guard let monitor = WindowsMonitorControl(display: target) else {
+            fail("Windows reports no DDC/CI monitor for \(target.name)")
+        }
+        switch arguments.first {
+        case "probe":
+            for vcp in [MCCS.luminance, MCCS.contrast, MCCS.colorPreset, DDCDisplay.redGain, DDCDisplay.greenGain,
+                        DDCDisplay.blueGain, MCCS.inputSource, MCCS.displayMode, MCCS.vcpVersion] {
+                let label = String(format: "0x%02X %@", vcp, MCCS.name(of: vcp)).padding(toLength: 34, withPad: " ", startingAt: 0)
+                let started = Date()
+                guard let value = monitor.read(vcp) else { print(label + "no reply"); continue }
+                let preset = vcp == MCCS.colorPreset ? MCCS.presetName(value.current).map { "  (\($0))" } ?? "" : ""
+                print(label + String(format: "%5d / %-5d  %4.0f ms", value.current, value.maximum,
+                                     Date().timeIntervalSince(started) * 1000) + preset)
+            }
+        case "capabilities":
+            guard let raw = monitor.readCapabilitiesString() else { fail("no capabilities string") }
+            print("raw: \(raw)")
+            guard let capabilities = MCCSCapabilities(raw) else { print("could not parse the string"); return }
+            print("model \(capabilities.model ?? "?")  type \(capabilities.type ?? "?")  MCCS \(capabilities.mccsVersion ?? "?")")
+            for code in capabilities.vcp.keys.sorted() {
+                let caution = MCCS.disruptive.contains(code) ? "  [never written automatically]" : ""
+                print(String(format: "  0x%02X %@", code, MCCS.name(of: code)) + caution)
+            }
+        default:
+            fail("on Windows, ddc supports probe and capabilities")
+        }
         #else
-        fail("ddc commands are macOS only")
+        fail("ddc commands need macOS or Windows")
         #endif
+    }
+
+    /// `git describe` of the working directory, or "unknown" outside a checkout.
+    static func gitRevision() -> String {
+        let process = Process()
+        #if os(Windows)
+        process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["ComSpec"] ?? "C:\\Windows\\System32\\cmd.exe")
+        process.arguments = ["/c", "git describe --always --dirty"]
+        #else
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["describe", "--always", "--dirty"]
+        #endif
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return "unknown" }
+        process.waitUntilExit()
+        let text = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return process.terminationStatus == 0 && !text.isEmpty ? text : "unknown"
     }
 
     // MARK: - Parsing

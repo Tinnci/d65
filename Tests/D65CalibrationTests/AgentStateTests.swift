@@ -7,7 +7,7 @@ import XCTest
 @MainActor final class PlacementMonitorTests: XCTestCase {
     private func sample(_ y: Double) -> MeasurementSample { MeasurementSample(xyz: XYZ(x: y * 0.95, y: y, z: y * 1.09), lux: y) }
 
-    func testSettlesAfterSteadyReadings() {
+    func testSettlesAfterSteadyReadings() async {
         var monitor = PlacementMonitor()
         let start = Date(timeIntervalSince1970: 0)
         var last = PlacementReading(state: .waiting)
@@ -16,7 +16,7 @@ import XCTest
         XCTAssertEqual(last.steadyFraction, 1)
     }
 
-    func testMotionAndJumpsRestartTheRun() {
+    func testMotionAndJumpsRestartTheRun() async {
         var monitor = PlacementMonitor()
         let t = Date(timeIntervalSince1970: 0)
         _ = monitor.add(sample(128), stable: true, at: t)
@@ -27,7 +27,7 @@ import XCTest
         XCTAssertEqual(jumped.steadyFraction, 0)
     }
 
-    func testDarkAndSilentStates() {
+    func testDarkAndSilentStates() async {
         var monitor = PlacementMonitor()
         let t = Date(timeIntervalSince1970: 0)
         XCTAssertEqual(monitor.tick(at: t).state, .waiting)
@@ -47,7 +47,7 @@ private final class MemoryBackend: TransferTableBackend, @unchecked Sendable {
 }
 
 @MainActor final class CorrectionHoldTests: XCTestCase {
-    func testPreviewKeepPauseAndRelease() throws {
+    func testPreviewKeepPauseAndRelease() async throws {
         let backend = MemoryBackend()
         let hold = CorrectionHold(backend: backend)
         try hold.preview(RGBGains(r: 1, g: 1, b: 0.85), gamma: 2.2)
@@ -69,7 +69,7 @@ private final class MemoryBackend: TransferTableBackend, @unchecked Sendable {
         XCTAssertTrue(backend.isOriginal)
     }
 
-    func testReassertDoesNotCompoundTheCorrection() throws {
+    func testReassertDoesNotCompoundTheCorrection() async throws {
         let backend = MemoryBackend()
         let hold = CorrectionHold(backend: backend)
         try hold.hold(RGBGains(r: 1, g: 1, b: 0.8), gamma: 2.2)
@@ -90,7 +90,7 @@ private final class MemoryBackend: TransferTableBackend, @unchecked Sendable {
         return record
     }
 
-    func testRoundTripAndLookup() throws {
+    func testRoundTripAndLookup() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "/c.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let r = record()
@@ -104,7 +104,7 @@ private final class MemoryBackend: TransferTableBackend, @unchecked Sendable {
         XCTAssertNil(CorrectionStore(url: url).correction(for: "uuid-1", modeSignature: "3840×2160@60"))
     }
 
-    func testGuardDistinguishesUnchangedChangedAndUnverified() {
+    func testGuardDistinguishesUnchangedChangedAndUnverified() async {
         let r = record()
         let stored = StoredCorrection(record: r, gains: r.bestGains!)
         let mode = "3840×2160@60"
@@ -121,7 +121,7 @@ private final class MemoryBackend: TransferTableBackend, @unchecked Sendable {
                        .changed(.modeChanged(from: mode, to: "2560×1440@60")), "mode needs no DDC")
     }
 
-    func testCorrectionWithoutMonitorSettingsIsUnguardedNotVerified() {
+    func testCorrectionWithoutMonitorSettingsIsUnguardedNotVerified() async {
         var r = record()
         r = ExperimentRecord(startedAt: Date(), softwareRevision: "t", configuration: .init(mode: .calibrate),
             display: DisplayContext(identity: "uuid-2", name: "HDMI panel", displayID: 3, width: 1920, height: 1080,

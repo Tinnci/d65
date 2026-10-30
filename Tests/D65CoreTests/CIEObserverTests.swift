@@ -1,4 +1,6 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import XCTest
 @testable import D65Core
 
@@ -16,8 +18,13 @@ final class CIEObserverTests: XCTestCase {
         ]
         for (filename, suffix, md5, sha256) in sources {
             let data = try CIESpectralData.resource(filename)
+            // CryptoKit is Apple-only; elsewhere scripts/check_cie_data.py still verifies the bytes.
+            #if canImport(CryptoKit)
             XCTAssertEqual(Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined(), md5)
             XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), sha256)
+            #else
+            _ = data
+            #endif
             let metadata = try JSONDecoder().decode(Metadata.self, from: CIESpectralData.resource(filename + suffix))
             XCTAssertEqual(metadata.checksums.first { $0.hashMethod == "md5" }?.checksum, md5)
             XCTAssertEqual(metadata.checksums.first { $0.hashMethod == "sha256" }?.checksum, sha256)

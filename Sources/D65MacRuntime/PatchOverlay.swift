@@ -1,11 +1,12 @@
 #if os(macOS)
 import AppKit
 import D65Calibration
+import D65Host
 import Foundation
 
 /// Full-screen patches on the target display. It takes key focus so Esc always ends a session,
 /// hides the cursor, and keeps its guidance in a strip at the bottom edge, away from the sensor.
-@MainActor final class ScreenPatchPresenter: PatchPresenter {
+@MainActor final class ScreenPatchPresenter: HostOverlay {
     let screen: NSScreen
     let displayID: UInt32
     var onCancel: (() -> Void)?
@@ -34,7 +35,7 @@ import Foundation
     func showPlacement(probeModel: String?, hint: String) {
         let view = open()
         view.fill = .white; view.luminance = 1
-        view.outline = PhoneOutline.size(model: probeModel, on: screen, displayID: displayID)
+        view.outline = PhoneOutline.points(model: probeModel, on: screen, displayID: displayID)
         view.hint = hint
         view.footer = "Space to start now · Esc to cancel"
         view.fraction = nil
@@ -141,15 +142,9 @@ final class OverlayView: NSView {
 }
 
 /// The phone's footprint in points on a given display, from its physical size.
-enum PhoneOutline {
-    /// Width × height in millimetres for models seen by the probe; others use a 6.1-inch body.
-    static let millimetres: [String: CGSize] = [
-        "iPhone18,4": CGSize(width: 74.7, height: 156.2),   // iPhone Air
-        "iPhone17,1": CGSize(width: 71.5, height: 149.6), "iPhone17,2": CGSize(width: 77.6, height: 163.0),
-        "iPhone17,3": CGSize(width: 71.5, height: 147.6), "iPhone17,4": CGSize(width: 77.8, height: 160.9),
-    ]
-    static func size(model: String?, on screen: NSScreen, displayID: UInt32) -> CGSize {
-        let phone = model.flatMap { millimetres[$0] } ?? CGSize(width: 71.5, height: 147.6)
+extension PhoneOutline {
+    static func points(model: String?, on screen: NSScreen, displayID: UInt32) -> CGSize {
+        let phone = millimetres(model: model)
         let physical = CGDisplayScreenSize(displayID)
         // CGDisplayScreenSize is EDID-derived and can be zero; fall back to ~110 ppi.
         let pointsPerMM = physical.width > 0 ? screen.frame.width / physical.width : 110 / 25.4

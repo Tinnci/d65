@@ -443,7 +443,7 @@ import XCTest
         XCTAssertEqual(display.begins, 0)
     }
 
-    func testOlderRecordsAndStoresDecodeWithDefaults() throws {
+    func testOlderRecordsAndStoresDecodeWithDefaults() async throws {
         let configuration = try JSONDecoder().decode(CalibrationConfiguration.self, from: Data("""
             {"mode":"calibrate","settlingSeconds":0.5,"samplingSeconds":2,"minimumSamples":3,"maximumPasses":3,
              "targetDeltaE":2,"gate":{"minimumPreCorrectionDeltaE":2.5,"maximumPostCorrectionDeltaE":5,"maximumLuminanceLoss":0.2}}
@@ -543,13 +543,13 @@ private let metricWhite = Chromaticity(x: 0.300, y: 0.315).xyz(luminance: 100)
         XCTAssertEqual(display.begins, 0)
     }
 
-    func testSameViewerAsProbeNeedsNoSpectra() throws {
+    func testSameViewerAsProbeNeedsNoSpectra() async throws {
         var configuration = CalibrationConfiguration(mode: .calibrate)
         configuration.viewerObserver = .cie1931TwoDegree
         XCTAssertEqual(try configuration.whiteTarget(), .d65)
     }
 
-    func testSpectraStoreRoundTripsPerDisplay() throws {
+    func testSpectraStoreRoundTripsPerDisplay() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "/spectra.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         try PrimarySpectraStore(url: url).save(try spectra(), for: "uuid-1")
