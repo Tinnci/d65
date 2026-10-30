@@ -133,7 +133,7 @@ final class ServiceAdvertisement {
               let register = systemFunction("dnsapi.dll", "DnsServiceRegister", as: Register.self) else { return nil }
         var size: DWORD = 256
         var name = [UInt16](repeating: 0, count: Int(size))
-        guard GetComputerNameExW(ComputerNameDnsHostname, &name, &size) else { return nil }
+        guard GetComputerNameExW(ComputerNameDnsHostname, &name, &size).boolValue else { return nil }
         let host = String(decoding: name.prefix(Int(size)), as: UTF16.self) + ".local"
         // With no IPv4 address, Windows' own mDNS responder still answers for <host>.local.
         var address = Self.ipv4Address() ?? 0

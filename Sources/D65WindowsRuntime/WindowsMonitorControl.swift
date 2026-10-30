@@ -36,9 +36,9 @@ public final class WindowsMonitorControl: @unchecked Sendable {
         guard let count = Self.count, let getMonitors = Self.getMonitors,
               let handle = WindowsDisplayDirectory.monitorHandle(deviceName: display.deviceName) else { return nil }
         var number: DWORD = 0
-        guard count(handle, &number), number > 0 else { return nil }
+        guard count(handle, &number).boolValue, number > 0 else { return nil }
         var records = [UInt8](repeating: 0, count: Int(number) * Self.recordSize)
-        guard records.withUnsafeMutableBytes({ getMonitors(handle, number, $0.baseAddress) }) else { return nil }
+        guard records.withUnsafeMutableBytes({ getMonitors(handle, number, $0.baseAddress).boolValue }) else { return nil }
         self.records = records; self.count = Int(number)
     }
 
@@ -55,23 +55,23 @@ public final class WindowsMonitorControl: @unchecked Sendable {
         guard let getVCP = Self.getVCP else { return nil }
         return lock.withLock {
             var current: DWORD = 0, maximum: DWORD = 0
-            guard getVCP(handle, code, nil, &current, &maximum) else { return nil }
+            guard getVCP(handle, code, nil, &current, &maximum).boolValue else { return nil }
             return DDCValue(current: UInt16(truncatingIfNeeded: current), maximum: UInt16(truncatingIfNeeded: maximum))
         }
     }
 
     public func write(_ code: UInt8, value: UInt16) -> Bool {
         guard let setVCP = Self.setVCP else { return false }
-        return lock.withLock { Bool(setVCP(handle, code, DWORD(value))) }
+        return lock.withLock { setVCP(handle, code, DWORD(value)).boolValue }
     }
 
     public func readCapabilitiesString() -> String? {
         guard let length = Self.capabilitiesLength, let request = Self.capabilities else { return nil }
         return lock.withLock {
             var size: DWORD = 0
-            guard length(handle, &size), size > 0 else { return nil }
+            guard length(handle, &size).boolValue, size > 0 else { return nil }
             var buffer = [CChar](repeating: 0, count: Int(size) + 1)
-            guard request(handle, &buffer, size) else { return nil }
+            guard request(handle, &buffer, size).boolValue else { return nil }
             return String(cString: buffer)
         }
     }
